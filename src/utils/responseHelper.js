@@ -33,23 +33,20 @@ const sendSuccess = (res, { statusCode = 200, message = "", data = [] }) => {
  * @param {Object} options - Error configuration
  * @param {number} options.statusCode - HTTP error status code (default: 400)
  * @param {string} options.message - Error description
- * @param {*} options.data - Optional error details
  *
  * Usage:
  * sendError(res, {
  *   statusCode: 422,
  *   message: "Validation failed",
- *   data: { field: "email" }
  * });
  */
 const sendError = (
   res,
-  { statusCode = 400, message = "Something went wrong", data = [] }
+  { statusCode = 400, message = "Something went wrong" }
 ) => {
   return res.status(statusCode).json({
     isError: true, // Indicates request failed
-    message, // Human-readable error message
-    data, // Extra error information (optional)
+    message, // Human-readable error messages
   });
 };
 

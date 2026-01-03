@@ -116,7 +116,7 @@ router.get("/login", async (req, res) => {
 
     // 4️⃣ Generate JWT token
     const token = jwt.sign(
-      { user: user.user_id }, // Payload
+      { userId: user.user_id }, // Payload
       process.env.JWT_SECRET, // Secret key
       { expiresIn: process.env.JWT_EXPIRES_IN } // Expiry time
     );

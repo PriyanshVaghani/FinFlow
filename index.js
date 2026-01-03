@@ -11,7 +11,7 @@ const app = express();
 
 // ⚡ Middleware to parse JSON request bodies
 // Required to access req.body in POST/PUT requests
-app.use(express.json());  
+app.use(express.json());
 
 // Middleware to parse application/x-www-form-urlencoded
 // Needed when data is sent from HTML forms
@@ -22,7 +22,10 @@ app.use(express.urlencoded({ extended: true }));
 // =======================================
 // All authentication-related APIs will start with /api/auth
 const authRoutes = require("./src/routes/auth");
+const categoriesRoutes = require("./src/routes/categories");
+
 app.use("/api/auth", authRoutes);
+app.use("/api/categories", categoriesRoutes);
 
 // =======================================
 // 🔌 Server Port Configuration

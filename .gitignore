@@ -1,0 +1,8 @@
+# Ignore environment files
+.env
+
+# Node modules
+node_modules/
+
+# Ignored here based on project preference
+package-lock.json

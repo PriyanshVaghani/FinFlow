@@ -9,6 +9,21 @@ require("dotenv").config(); // Loads .env variables into process.env
 // =======================================
 const app = express();
 
+// ⚡ Middleware to parse JSON request bodies
+// Required to access req.body in POST/PUT requests
+app.use(express.json());  
+
+// Middleware to parse application/x-www-form-urlencoded
+// Needed when data is sent from HTML forms
+app.use(express.urlencoded({ extended: true }));
+
+// =======================================
+// 🛣️ Import & Register Routes
+// =======================================
+// All authentication-related APIs will start with /api/auth
+const authRoutes = require("./src/routes/auth");
+app.use("/api/auth", authRoutes);
+
 // =======================================
 // 🔌 Server Port Configuration
 // =======================================

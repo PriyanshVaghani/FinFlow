@@ -81,7 +81,32 @@ router.post("/add", authenticationToken, async (req, res) => {
     });
   }
 
+  const ALLOWED_TYPES = ["Income", "Expense"];
+
+  if (!ALLOWED_TYPES.includes(type)) {
+    return sendError(res, {
+      statusCode: 422,
+      message: "Invalid category type",
+    });
+  }
+
   try {
+    // Prevent user from adding default category name
+    const [existing] = await db.query(
+      `
+        SELECT category_id FROM categories
+        WHERE name = ? AND type = ? AND user_id IS NULL AND is_active = 1
+      `,
+      [name.trim(), type]
+    );
+
+    if (existing.length > 0) {
+      return sendError(res, {
+        statusCode: 409,
+        message: "This category already exists as a default category",
+      });
+    }
+
     // 2️⃣ Insert new category for the logged-in user
     const [result] = await db.query(
       `
@@ -100,6 +125,14 @@ router.post("/add", authenticationToken, async (req, res) => {
       },
     });
   } catch (err) {
+    // ✅ Check for MySQL duplicate entry error
+    if (err.code === "ER_DUP_ENTRY") {
+      return sendError(res, {
+        statusCode: 409, // Conflict
+        message: "You already have a category with this name and type",
+      });
+    }
+
     // ❌ Handle unexpected server errors
     return sendError(res, {
       statusCode: 500,

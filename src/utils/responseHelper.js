@@ -16,12 +16,22 @@
  *   data: result
  * });
  */
-const sendSuccess = (res, { statusCode = 200, message = "", data = [] }) => {
-  return res.status(statusCode).json({
-    isError: false, // Indicates request was successful
-    message, // Optional success message
-    data, // Actual response data
-  });
+const sendSuccess = (res, { statusCode = 200, message, data } = {}) => {
+  const response = {
+    isError: false,
+  };
+
+  // Add message only if provided
+  if (message !== undefined) {
+    response.message = message;
+  }
+
+  // Add data only if provided
+  if (data !== undefined) {
+    response.data = data;
+  }
+
+  return res.status(statusCode).json(response);
 };
 
 /**

@@ -8,36 +8,44 @@ const fs = require("fs"); // File system module to manage folders/files
 // =======================================
 // 📁 Upload Directory Path
 // =======================================
-// All transaction attachments will be stored inside this folder
-const uploadDir = "uploads/transactions";
-
-// =======================================
-// 📂 Ensure Upload Directory Exists
-// =======================================
-// If the folder does NOT exist, create it automatically.
-// This prevents ENOENT errors when saving files.
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
+// Base folder for transaction attachments
+// Actual files will be stored inside:
+// uploads/transactions/user_<userId>/
+const BASE_UPLOAD_DIR = "uploads/transactions";
 
 // =======================================
 // 🗄️ Multer Storage Configuration
 // =======================================
 const storage = multer.diskStorage({
-  // 📍 Step 1: Define destination folder
+  // 📍 Step 1: Define destination folder (per user)
   destination: (req, file, cb) => {
     // cb(error, destinationPath)
-    // Only folder path should be provided here
-    cb(null, uploadDir);
+    // Destination folder is decided dynamically based on logged-in user
+    // userId comes from authenticationToken middleware
+    const userId = req.userId;
+
+    if (!userId) {
+      return cb(new Error("User not authenticated"), null);
+    }
+
+    // uploads/transactions/user_12
+    const userDir = path.join(BASE_UPLOAD_DIR, `user_${userId}`);
+
+    // Create user-specific directory if it doesn't exist
+    if (!fs.existsSync(userDir)) {
+      fs.mkdirSync(userDir, { recursive: true });
+    }
+
+    cb(null, userDir);
   },
 
-  // 🏷 Step 2: Generate unique filename
+  // 🏷 Step 2: Generate unique filename (inside user folder)
   filename: (req, file, cb) => {
     // Extract original file extension (.png, .jpg, .pdf)
     const ext = path.extname(file.originalname);
 
     // Generate a unique filename using timestamp + random number
-    // This avoids file overwrite issues
+    // Prevents filename collision within the same user folder
     const uniqueName = `${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`;
 
     // cb(error, filename)
@@ -67,9 +75,10 @@ const fileFilter = (req, file, cb) => {
 // =======================================
 // 🚀 Export Multer Middleware
 // =======================================
-// This middleware is used in routes to handle file uploads
+// This middleware stores uploaded files
+// inside user-specific folders under uploads/transactions/
 module.exports = multer({
-  storage, // Custom disk storage config
+  storage, // Custom disk storage config (per user)
   fileFilter, // File type validation
   limits: {
     fileSize: 5 * 1024 * 1024, // ⛔ Max file size = 5MB per file

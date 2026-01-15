@@ -135,8 +135,31 @@ router.post(
   authenticationToken,
 
   // 📎 Multer middleware for handling file uploads
-  // Accepts up to 5 files under "attachments" field
-  upload.array("attachments", 5),
+  // - Accepts up to 5 files under "attachments" field
+  // - Handles Multer errors locally (no global error handler used)
+  // - Ensures clean API error responses for upload failures
+  (req, res, next) => {
+    upload.array("attachments", 5)(req, res, (err) => {
+      // ✅ No upload error → proceed to next middleware/controller
+      if (!err) {
+        return next();
+      }
+
+      // ❌ File size limit exceeded
+      if (err.code === "LIMIT_FILE_SIZE") {
+        return sendError(res, {
+          statusCode: 413,
+          message: "File size too large. Maximum allowed size is 5MB.",
+        });
+      }
+
+      // ❌ Any other Multer or file validation error
+      return sendError(res, {
+        statusCode: 400,
+        message: err.message || "File upload failed",
+      });
+    });
+  },
 
   async (req, res) => {
     // 🔐 Logged-in user ID

@@ -4,6 +4,7 @@
 const express = require("express");
 const router = express.Router();
 const db = require("../config/db");
+const upload = require("../middleware/upload");
 
 // 🔐 JWT authentication middleware
 const { authenticationToken } = require("../middleware/auth_middleware");
@@ -12,113 +13,226 @@ const { authenticationToken } = require("../middleware/auth_middleware");
 const { sendSuccess, sendError } = require("../utils/responseHelper");
 
 /**
+ * ======================================================
+ * 📥 GET /transactions
+ * ======================================================
  * @route   GET /transactions
- * @desc    Fetch all transactions of logged-in user
- * @access  Private
+ * @desc    Fetch all transactions of the logged-in user
+ * @access  Private (JWT protected)
  */
 router.get("/", authenticationToken, async (req, res) => {
-  // 🔑 Extract userId from JWT middleware
+  // 🔐 Extract userId added by authenticationToken middleware
   const userId = req.userId;
 
   try {
-    // 🗂️ Fetch transactions with related category details
-    const [transactions] = await db.query(
+    /**
+     * 1️⃣ Fetch transactions with category & attachment details
+     *
+     * - transactions (t): main transaction data
+     * - categories (c): category name & type
+     * - transaction_attachments (ta): optional attachments
+     *
+     * LEFT JOIN is used for attachments because:
+     * - A transaction MAY have zero attachments
+     *
+     * JSON_ARRAYAGG:
+     * - Converts multiple attachment rows into a single JSON array
+     *
+     * COALESCE:
+     * - Ensures attachments is always an array (not NULL)
+     */
+    const [rows] = await db.query(
       `
-      SELECT
-        t.trn_id AS trnId,          -- Transaction ID
-        t.amount,                  -- Transaction amount
-        t.note,                    -- Optional note
-        t.trn_date AS trnDate,     -- Transaction date
-        c.category_id AS categoryId,
-        c.name AS categoryName,
-        c.type AS type             -- Income / Expense
-      FROM transactions t
-      JOIN categories c
-        ON t.category_id = c.category_id
-      WHERE t.user_id = ?
-      ORDER BY t.trn_date DESC     -- Latest transactions first
+        SELECT 
+          t.trn_id AS trnId,
+          t.amount,
+          t.note,
+          t.trn_date AS trnDate,
+          c.category_id AS categoryId,
+          c.name AS categoryName,
+          c.type,
+          COALESCE(
+            JSON_ARRAYAGG(
+              CASE 
+                WHEN ta.attachment_id IS NOT NULL THEN JSON_OBJECT(
+                  'id', ta.attachment_id,
+                  'fileName', ta.file_name,
+                  'filePath', ta.file_path,
+                  'fileType', ta.file_type,
+                  'fileSize', ta.file_size
+                )
+              END
+            ),
+            JSON_ARRAY()
+          ) AS attachments
+        FROM transactions t
+        LEFT JOIN transaction_attachments ta 
+          ON ta.trn_id = t.trn_id
+        JOIN categories c 
+          ON c.category_id = t.category_id
+        WHERE t.user_id = ?
+        GROUP BY t.trn_id
+        ORDER BY t.trn_date DESC
       `,
       [userId]
     );
 
-    // ✅ Send successful response
-    return sendSuccess(res, {
-      statusCode: 200,
-      data: transactions,
-    });
-  } catch (err) {
-    console.error(err);
+    /**
+     * 2️⃣ Post-process attachments
+     *
+     * - Remove NULL attachment objects
+     * - Convert Windows paths (\) to URL-safe (/)
+     * - Generate public file URLs
+     */
+    const transactions = rows.map((trn) => {
+      // Ensure attachments is a valid array
+      const attachments = Array.isArray(trn.attachments)
+        ? trn.attachments
+            // Remove NULL objects caused by LEFT JOIN
+            .filter((a) => a && a.filePath)
+            .map((a) => {
+              // Normalize file path for URLs
+              const cleanPath = a.filePath.replace(/\\/g, "/");
 
-    // ❌ Handle unexpected errors
+              return {
+                ...a,
+                filePath: cleanPath,
+                // Generate full public URL
+                url: `${req.protocol}://${req.get("host")}/${cleanPath}`,
+              };
+            })
+        : [];
+
+      return {
+        ...trn,
+        attachments,
+      };
+    });
+
+    // ✅ Send success response
+    return sendSuccess(res, { data: transactions });
+  } catch (err) {
+    // ❌ Handle unexpected server errors
     return sendError(res, {
       statusCode: 500,
-      message: "Internal server error",
+      message: err.message,
     });
   }
 });
 
 /**
+ * ======================================================
+ * 📤 POST /transactions/add
+ * ======================================================
  * @route   POST /transactions/add
- * @desc    Add a new transaction
- * @access  Private
+ * @desc    Add a new transaction with optional attachments
+ * @access  Private (JWT protected)
  */
-router.post("/add", authenticationToken, async (req, res) => {
-  const userId = req.userId;
+router.post(
+  "/add",
 
-  // 📥 Extract request body
-  const { categoryId, amount, note, trnDate } = req.body;
+  // 🔐 JWT Authentication
+  authenticationToken,
 
-  // ❗ Validate required fields
-  if (!categoryId || !amount || !trnDate) {
-    return sendError(res, {
-      statusCode: 422,
-      message: "categoryId, amount and trnDate are required",
-    });
-  }
+  // 📎 Multer middleware for handling file uploads
+  // Accepts up to 5 files under "attachments" field
+  upload.array("attachments", 5),
 
-  try {
-    // 🔎 Validate category existence and ownership
-    const [category] = await db.query(
-      `
-      SELECT category_id
-      FROM categories
-      WHERE category_id = ?
-        AND is_active = 1
-        AND (user_id = ? OR user_id IS NULL)
-      `,
-      [categoryId, userId]
-    );
+  async (req, res) => {
+    // 🔐 Logged-in user ID
+    const userId = req.userId;
 
-    // ❌ Category not found or inactive
-    if (category.length === 0) {
+    // 📥 Extract form fields
+    const { categoryId, amount, note, trnDate } = req.body;
+
+    /**
+     * 1️⃣ Validate required fields
+     */
+    if (!categoryId || !amount || !trnDate) {
       return sendError(res, {
-        statusCode: 400,
-        message: "Invalid or inactive category",
+        statusCode: 422,
+        message: "categoryId, amount and trnDate are required",
       });
     }
 
-    // ➕ Insert new transaction
-    await db.query(
-      `
-      INSERT INTO transactions
-      (user_id, category_id, amount, note, trn_date)
-      VALUES (?, ?, ?, ?, ?)
-      `,
-      [userId, categoryId, amount, note || null, trnDate]
-    );
+    // 🔄 Get DB connection for transaction handling
+    const conn = await db.getConnection();
 
-    // ✅ Success response
-    return sendSuccess(res, {
-      statusCode: 201,
-      message: "Transaction added successfully",
-    });
-  } catch (err) {
-    return sendError(res, {
-      statusCode: 500,
-      message: "Internal server error",
-    });
+    try {
+      /**
+       * 2️⃣ Start MySQL transaction
+       * Ensures:
+       * - Either transaction + attachments BOTH save
+       * - Or NOTHING saves (rollback)
+       */
+      await conn.beginTransaction();
+
+      /**
+       * 3️⃣ Insert transaction record
+       */
+      const [result] = await conn.query(
+        `
+        INSERT INTO transactions
+        (user_id, category_id, amount, note, trn_date)
+        VALUES (?, ?, ?, ?, ?)
+        `,
+        [userId, categoryId, amount, note || null, trnDate]
+      );
+
+      // 📌 Get newly created transaction ID
+      const trnId = result.insertId;
+
+      /**
+       * 4️⃣ Insert attachments (if provided)
+       */
+      if (req.files && req.files.length > 0) {
+        // Prepare bulk insert values
+        const values = req.files.map((file) => [
+          trnId,
+          file.originalname, // original filename
+          file.path, // stored file path
+          file.mimetype, // file type
+          file.size, // file size
+        ]);
+
+        await conn.query(
+          `
+          INSERT INTO transaction_attachments
+          (trn_id, file_name, file_path, file_type, file_size)
+          VALUES ?
+          `,
+          [values]
+        );
+      }
+
+      /**
+       * 5️⃣ Commit DB transaction
+       */
+      await conn.commit();
+
+      // ✅ Success response
+      return sendSuccess(res, {
+        statusCode: 201,
+        message: "Transaction added successfully.",
+      });
+    } catch (err) {
+      /**
+       * ❌ Rollback on any error
+       */
+      await conn.rollback();
+
+      return sendError(res, {
+        statusCode: 500,
+        message: err.message,
+      });
+    } finally {
+      /**
+       * 🔚 Release DB connection
+       */
+      conn.release();
+    }
   }
-});
+);
 
 /**
  * @route   PUT /transactions/update
@@ -138,7 +252,7 @@ router.put("/update", authenticationToken, async (req, res) => {
   if (!categoryId || !amount || !trnDate) {
     return sendError(res, {
       statusCode: 422,
-      message: "categoryId, amount and trnDate are required",
+      message: "categoryId, amount and trnDate are required.",
     });
   }
 
@@ -162,14 +276,14 @@ router.put("/update", authenticationToken, async (req, res) => {
     if (result.affectedRows === 0) {
       return sendError(res, {
         statusCode: 404,
-        message: "Transaction not found",
+        message: "Transaction not found.",
       });
     }
 
     // ✅ Success response
     return sendSuccess(res, {
       statusCode: 200,
-      message: "Transaction updated successfully",
+      message: "Transaction updated successfully.",
     });
   } catch (err) {
     return sendError(res, {
@@ -204,14 +318,14 @@ router.delete("/delete", authenticationToken, async (req, res) => {
     if (result.affectedRows === 0) {
       return sendError(res, {
         statusCode: 404,
-        message: "Transaction not found",
+        message: "Transaction not found.",
       });
     }
 
     // ✅ Success response
     return sendSuccess(res, {
       statusCode: 200,
-      message: "Transaction deleted successfully",
+      message: "Transaction deleted successfully.",
     });
   } catch (err) {
     return sendError(res, {

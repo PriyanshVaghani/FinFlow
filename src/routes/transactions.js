@@ -3,15 +3,31 @@
 // =======================================
 const express = require("express");
 const router = express.Router();
-const fs = require("fs");
-const db = require("../config/db");
-const upload = require("../middleware/upload");
+const fs = require("fs"); // 📁 File system (read / delete files)
+const crypto = require("crypto"); // 🔐 Used for file hashing
+const db = require("../config/db"); // 🗄️ MySQL connection pool
+const upload = require("../middleware/upload"); // 📎 Multer upload config
 
 // 🔐 JWT authentication middleware
 const { authenticationToken } = require("../middleware/auth_middleware");
 
 // 📤 Standard API response helpers
 const { sendSuccess, sendError } = require("../utils/responseHelper");
+
+// =======================================
+// 🔐 Generate File Hash (SHA-256)
+// =======================================
+// Purpose:
+// - Generates a unique hash based on file CONTENT
+// - Used to detect duplicate attachments
+// - Same file content → same hash
+const getFileHash = (filePath) => {
+  // 📖 Read file as buffer
+  const fileBuffer = fs.readFileSync(filePath);
+
+  // 🔐 Generate SHA-256 hash
+  return crypto.createHash("sha256").update(fileBuffer).digest("hex");
+};
 
 /**
  * ======================================================
@@ -210,23 +226,49 @@ router.post(
        * 4️⃣ Insert attachments (if provided)
        */
       if (req.files && req.files.length > 0) {
-        // Prepare bulk insert values
-        const values = req.files.map((file) => [
-          trnId,
-          file.originalname, // original filename
-          file.path, // stored file path
-          file.mimetype, // file type
-          file.size, // file size
-        ]);
+        const values = [];
 
-        await conn.query(
-          `
-          INSERT INTO transaction_attachments
-          (trn_id, file_name, file_path, file_type, file_size)
-          VALUES ?
-          `,
-          [values]
-        );
+        for (const file of req.files) {
+          // 🔐 Hash uniquely identifies file CONTENT (not filename)
+          const fileHash = getFileHash(file.path);
+
+          // 🔍 Check duplicate for same transaction
+          const [[exists]] = await conn.query(
+            `
+              SELECT 1 FROM transaction_attachments
+              WHERE trn_id = ? AND file_hash = ?
+            `,
+            [trnId, fileHash]
+          );
+
+          if (exists) {
+            // 🧹 Prevent duplicate storage on disk
+            fs.unlinkSync(file.path);
+            continue;
+          }
+
+          // ✅ Prepare unique attachment for DB insert
+          values.push([
+            trnId,
+            file.originalname,
+            file.path,
+            file.mimetype,
+            file.size,
+            fileHash,
+          ]);
+        }
+
+        // 📥 Insert only if at least one unique attachment exists
+        if (values.length > 0) {
+          await conn.query(
+            `
+              INSERT INTO transaction_attachments
+              (trn_id, file_name, file_path, file_type, file_size, file_hash)
+              VALUES ?
+            `,
+            [values]
+          );
+        }
       }
 
       /**
@@ -316,7 +358,7 @@ router.put(
       amount,
       note,
       trnDate,
-      deleteAttachmentIds = [], // attachment IDs to delete (optional)
+      deleteAttachmentIds = [], // Optional attachment IDs to delete
     } = req.body;
 
     // ❗ Validation
@@ -344,15 +386,15 @@ router.put(
       // ✏️ Update transaction (user-safe update)
       const [result] = await db.query(
         `
-      UPDATE transactions
-      SET 
-        category_id = ?,    -- Updated category
-        amount = ?,         -- Updated amount
-        note = ?,           -- Updated note
-        trn_date = ?        -- Updated date
-      WHERE trn_id = ?
-        AND user_id = ?     -- Prevent updating others' data
-      `,
+        UPDATE transactions
+        SET 
+          category_id = ?,    -- Updated category
+          amount = ?,         -- Updated amount
+          note = ?,           -- Updated note
+          trn_date = ?        -- Updated transaction date
+        WHERE trn_id = ?
+          AND user_id = ?     -- Ownership check
+        `,
         [categoryId, amount, note || null, trnDate, trnId, userId]
       );
 
@@ -374,9 +416,10 @@ router.put(
       if (deleteAttachmentIds.length > 0) {
         const [filesPath] = await db.query(
           `
-            SELECT file_path
-            FROM transaction_attachments
-            WHERE trn_id = ? and attachment_id IN (?)
+          SELECT file_path
+          FROM transaction_attachments
+          WHERE trn_id = ?
+            AND attachment_id IN (?)
           `,
           [trnId, deleteAttachmentIds]
         );
@@ -393,8 +436,9 @@ router.put(
         // 🗑️ Remove attachment records from DB
         await db.query(
           `
-            DELETE FROM transaction_attachments
-            WHERE trn_id = ? and attachment_id IN (?)
+          DELETE FROM transaction_attachments
+          WHERE trn_id = ?
+            AND attachment_id IN (?)
           `,
           [trnId, deleteAttachmentIds]
         );
@@ -406,22 +450,50 @@ router.put(
        * - Only DB insertion happens here
        */
       if (req.files && req.files.length > 0) {
-        const values = req.files.map((file) => [
-          trnId,
-          file.originalname,
-          file.path,
-          file.mimetype,
-          file.size,
-        ]);
+        const values = [];
 
-        await conn.query(
-          `
-          INSERT INTO transaction_attachments
-          (trn_id, file_name, file_path, file_type, file_size)
-          VALUES ?
-          `,
-          [values]
-        );
+        for (const file of req.files) {
+          const fileHash = getFileHash(file.path);
+
+          // 🔍 Check for duplicate file using hash
+          const [[exists]] = await conn.query(
+            `
+            SELECT 1
+            FROM transaction_attachments
+            WHERE trn_id = ?
+              AND file_hash = ?
+            `,
+            [trnId, fileHash]
+          );
+
+          if (exists) {
+            // 🧹 Remove duplicate file from disk
+            fs.unlinkSync(file.path);
+            continue;
+          }
+
+          // ✅ Prepare insert values
+          values.push([
+            trnId,
+            file.originalname,
+            file.path,
+            file.mimetype,
+            file.size,
+            fileHash,
+          ]);
+        }
+
+        // 📥 Insert only if new files exist
+        if (values.length > 0) {
+          await conn.query(
+            `
+            INSERT INTO transaction_attachments
+            (trn_id, file_name, file_path, file_type, file_size, file_hash)
+            VALUES ?
+            `,
+            [values]
+          );
+        }
       }
 
       // ✅ COMMIT ONLY IF EVERYTHING PASSES

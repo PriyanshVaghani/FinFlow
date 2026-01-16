@@ -3,6 +3,7 @@
 // =======================================
 const express = require("express");
 const router = express.Router();
+const fs = require("fs");
 const db = require("../config/db");
 const upload = require("../middleware/upload");
 
@@ -262,27 +263,87 @@ router.post(
  * @desc    Update an existing transaction
  * @access  Private
  */
-router.put("/update", authenticationToken, async (req, res) => {
-  const userId = req.userId;
+router.put(
+  "/update",
+  authenticationToken,
 
-  // 📥 Get transaction ID from query
-  const { trnId } = req.query;
+  /**
+   * 📎 Multer middleware
+   * Handles attachment uploads before main controller logic
+   * - Accepts max 5 files under "attachments"
+   * - Handles Multer-specific errors locally (no global error handler)
+   */
+  (req, res, next) => {
+    upload.array("attachments", 5)(req, res, (err) => {
+      // ✅ No upload error → proceed to next middleware/controller
+      if (!err) {
+        return next();
+      }
 
-  // 📥 Get updated values from body
-  const { categoryId, amount, note, trnDate } = req.body;
+      // ❌ File size limit exceeded
+      if (err.code === "LIMIT_FILE_SIZE") {
+        return sendError(res, {
+          statusCode: 413,
+          message: "File size too large. Maximum allowed size is 5MB.",
+        });
+      }
 
-  // ❗ Validation
-  if (!categoryId || !amount || !trnDate) {
-    return sendError(res, {
-      statusCode: 422,
-      message: "categoryId, amount and trnDate are required.",
+      // ❌ Any other Multer or file validation error
+      return sendError(res, {
+        statusCode: 400,
+        message: err.message || "File upload failed",
+      });
     });
-  }
+  },
 
-  try {
-    // ✏️ Update transaction (user-safe update)
-    const [result] = await db.query(
-      `
+  /**
+   * 🧠 Main controller logic
+   * Handles:
+   * - Transaction update
+   * - Attachment deletion
+   * - New attachment insertion
+   * - Atomic DB transaction (commit / rollback)
+   */
+  async (req, res) => {
+    const userId = req.userId;
+
+    // 📥 Get transaction ID from query
+    const { trnId } = req.query;
+
+    // 📥 Get updated values from body
+    const {
+      categoryId,
+      amount,
+      note,
+      trnDate,
+      deleteAttachmentIds = [], // attachment IDs to delete (optional)
+    } = req.body;
+
+    // ❗ Validation
+    if (!categoryId || !amount || !trnDate) {
+      return sendError(res, {
+        statusCode: 422,
+        message: "categoryId, amount and trnDate are required.",
+      });
+    }
+
+    // 🔄 Get DB connection for transactional operations
+    const conn = await db.getConnection();
+
+    try {
+      /**
+       * 🔐 Begin DB transaction
+       * Ensures:
+       * - Transaction update
+       * - Attachment delete
+       * - Attachment insert
+       * all succeed together or fail together
+       */
+      conn.beginTransaction();
+
+      // ✏️ Update transaction (user-safe update)
+      const [result] = await db.query(
+        `
       UPDATE transactions
       SET 
         category_id = ?,    -- Updated category
@@ -292,29 +353,111 @@ router.put("/update", authenticationToken, async (req, res) => {
       WHERE trn_id = ?
         AND user_id = ?     -- Prevent updating others' data
       `,
-      [categoryId, amount, note || null, trnDate, trnId, userId]
-    );
+        [categoryId, amount, note || null, trnDate, trnId, userId]
+      );
 
-    // ❌ No record found
-    if (result.affectedRows === 0) {
-      return sendError(res, {
-        statusCode: 404,
-        message: "Transaction not found.",
+      // ❌ No record found
+      if (result.affectedRows === 0) {
+        return sendError(res, {
+          statusCode: 404,
+          message: "Transaction not found.",
+        });
+      }
+
+      /**
+       * 🗑️ Delete selected attachments (if provided)
+       * Steps:
+       * 1. Fetch file paths
+       * 2. Delete physical files from disk
+       * 3. Delete DB records
+       */
+      if (deleteAttachmentIds.length > 0) {
+        const [filesPath] = await db.query(
+          `
+            SELECT file_path
+            FROM transaction_attachments
+            WHERE trn_id = ? and attachment_id IN (?)
+          `,
+          [trnId, deleteAttachmentIds]
+        );
+
+        console.log(filesPath);
+
+        // 🧹 Remove files from filesystem
+        for (const f of filesPath) {
+          if (fs.existsSync(f.file_path)) {
+            fs.unlinkSync(f.file_path);
+          }
+        }
+
+        // 🗑️ Remove attachment records from DB
+        await db.query(
+          `
+            DELETE FROM transaction_attachments
+            WHERE trn_id = ? and attachment_id IN (?)
+          `,
+          [trnId, deleteAttachmentIds]
+        );
+      }
+
+      /**
+       * 3️⃣ Add new attachments (if uploaded)
+       * - Files already stored by Multer
+       * - Only DB insertion happens here
+       */
+      if (req.files && req.files.length > 0) {
+        const values = req.files.map((file) => [
+          trnId,
+          file.originalname,
+          file.path,
+          file.mimetype,
+          file.size,
+        ]);
+
+        await conn.query(
+          `
+          INSERT INTO transaction_attachments
+          (trn_id, file_name, file_path, file_type, file_size)
+          VALUES ?
+          `,
+          [values]
+        );
+      }
+
+      // ✅ COMMIT ONLY IF EVERYTHING PASSES
+      await conn.commit();
+
+      // ✅ Success response
+      return sendSuccess(res, {
+        statusCode: 200,
+        message: "Transaction updated successfully.",
       });
-    }
+    } catch (err) {
+      // ❌ ROLLBACK EVERYTHING on any failure
+      await conn.rollback();
 
-    // ✅ Success response
-    return sendSuccess(res, {
-      statusCode: 200,
-      message: "Transaction updated successfully.",
-    });
-  } catch (err) {
-    return sendError(res, {
-      statusCode: 500,
-      message: err.message,
-    });
+      /**
+       * 🧹 Cleanup uploaded files
+       * Ensures no orphan files remain if DB operation fails
+       */
+      if (req.files) {
+        req.files.forEach((f) => {
+          if (fs.existsSync(f.path)) {
+            fs.unlinkSync(f.path);
+          }
+        });
+      }
+
+      return sendError(res, {
+        statusCode: 500,
+        message: err.message,
+      });
+    } finally {
+      // 🔚 Release DB connection
+      conn.release();
+    }
   }
-});
+);
 
 /**
  * @route   DELETE /transactions/delete
@@ -327,8 +470,25 @@ router.delete("/delete", authenticationToken, async (req, res) => {
   // 📥 Transaction ID from query
   const { trnId } = req.query;
 
+  const conn = await db.getConnection();
+
   try {
-    // 🗑️ Delete transaction safely
+    await conn.beginTransaction();
+
+    /**
+     * 📄 Fetch attachment file paths before deletion
+     * Required because DB records will be removed after transaction delete
+     */
+    const [attachments] = await conn.query(
+      `
+      SELECT file_path
+      FROM transaction_attachments
+      WHERE trn_id = ?
+      `,
+      [trnId]
+    );
+
+    // 🗑️ Delete transaction safely (ownership enforced)
     const [result] = await db.query(
       `
       DELETE FROM transactions
@@ -339,11 +499,24 @@ router.delete("/delete", authenticationToken, async (req, res) => {
 
     // ❌ Not found
     if (result.affectedRows === 0) {
+      await conn.rollback();
       return sendError(res, {
         statusCode: 404,
         message: "Transaction not found.",
       });
     }
+
+    /**
+     * 🧹 Delete physical attachment files
+     * (DB records already removed via ON DELETE CASCADE)
+     */
+    for (const file of attachments) {
+      if (fs.existsSync(file.file_path)) {
+        fs.unlinkSync(file.file_path);
+      }
+    }
+
+    await conn.commit();
 
     // ✅ Success response
     return sendSuccess(res, {
@@ -351,10 +524,14 @@ router.delete("/delete", authenticationToken, async (req, res) => {
       message: "Transaction deleted successfully.",
     });
   } catch (err) {
+    await conn.rollback();
+
     return sendError(res, {
       statusCode: 500,
       message: err.message,
     });
+  } finally {
+    conn.release();
   }
 });
 

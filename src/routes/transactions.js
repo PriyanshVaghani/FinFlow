@@ -36,6 +36,11 @@ const getFileHash = (filePath) => {
  * @route   GET /transactions
  * @desc    Fetch all transactions of the logged-in user
  * @access  Private (JWT protected)
+ *
+ * Responsibilities:
+ * - Fetch transactions with category info
+ * - Attach related files (if any)
+ * - Format attachment URLs
  */
 router.get("/", authenticationToken, async (req, res) => {
   // 🔐 Extract userId added by authenticationToken middleware
@@ -43,7 +48,7 @@ router.get("/", authenticationToken, async (req, res) => {
 
   try {
     /**
-     * 1️⃣ Fetch transactions with category & attachment details
+     * 📊 Fetch transactions with attachments
      *
      * - transactions (t): main transaction data
      * - categories (c): category name & type
@@ -95,7 +100,7 @@ router.get("/", authenticationToken, async (req, res) => {
     );
 
     /**
-     * 2️⃣ Post-process attachments
+     * 🔄 Post-process attachments
      *
      * - Remove NULL attachment objects
      * - Convert Windows paths (\) to URL-safe (/)
@@ -144,6 +149,11 @@ router.get("/", authenticationToken, async (req, res) => {
  * @route   POST /transactions/add
  * @desc    Add a new transaction with optional attachments
  * @access  Private (JWT protected)
+ *
+ * Features:
+ * - Atomic DB transaction
+ * - Duplicate attachment detection
+ * - File cleanup on failure
  */
 router.post(
   "/add",
@@ -151,13 +161,15 @@ router.post(
   // 🔐 JWT Authentication
   authenticationToken,
 
-  // 📎 Multer middleware for handling file uploads
-  // - Accepts up to 5 files under "attachments" field
-  // - Handles Multer errors locally (no global error handler used)
-  // - Ensures clean API error responses for upload failures
+  /**
+   * 📎 MULTER FILE UPLOAD HANDLER
+   * - Accepts max 5 files
+   * - Handles upload errors locally
+   */
   (req, res, next) => {
     upload.array("attachments", 5)(req, res, (err) => {
-      // ✅ No upload error → proceed to next middleware/controller
+      // ℹ️ err is ONLY related to Multer (file upload phase)
+      // It does NOT include controller / DB errors
       if (!err) {
         return next();
       }
@@ -178,16 +190,17 @@ router.post(
     });
   },
 
+  /**
+   * 🧠 MAIN CONTROLLER LOGIC
+   */
   async (req, res) => {
-    // 🔐 Logged-in user ID
+    // 🔐 Logged-in user ID (set by authenticationToken middleware)
     const userId = req.userId;
 
-    // 📥 Extract form fields
+    // 📥 Extract form fields (sent as multipart/form-data text fields)
     const { categoryId, amount, note, trnDate } = req.body;
 
-    /**
-     * 1️⃣ Validate required fields
-     */
+    // ❗ Required field validation
     if (!categoryId || !amount || !trnDate) {
       return sendError(res, {
         statusCode: 422,
@@ -196,6 +209,7 @@ router.post(
     }
 
     // 🔄 Get DB connection for transaction handling
+    // Required for manual commit / rollback
     const conn = await db.getConnection();
 
     try {
@@ -209,6 +223,7 @@ router.post(
 
       /**
        * 3️⃣ Insert transaction record
+       * Attachment records depend on this transaction ID
        */
       const [result] = await conn.query(
         `
@@ -220,10 +235,13 @@ router.post(
       );
 
       // 📌 Get newly created transaction ID
+      // Used as foreign key for attachments
       const trnId = result.insertId;
 
       /**
        * 4️⃣ Insert attachments (if provided)
+       * - Duplicate files are skipped using file_hash
+       * - Skipped duplicate files are removed from disk immediately
        */
       if (req.files && req.files.length > 0) {
         const values = [];
@@ -273,6 +291,7 @@ router.post(
 
       /**
        * 5️⃣ Commit DB transaction
+       * All changes become permanent here
        */
       await conn.commit();
 
@@ -284,6 +303,9 @@ router.post(
     } catch (err) {
       /**
        * ❌ Rollback on any error
+       * Includes:
+       * - DB errors
+       * - Attachment insert failures
        */
       await conn.rollback();
 
@@ -293,7 +315,8 @@ router.post(
       });
     } finally {
       /**
-       * 🔚 Release DB connection
+       * 🔚 Release DB connection back to pool
+       * Always runs (success or failure)
        */
       conn.release();
     }
@@ -301,28 +324,44 @@ router.post(
 );
 
 /**
+ * ==========================================
+ * ✏️ UPDATE TRANSACTION API
+ * ==========================================
  * @route   PUT /transactions/update
- * @desc    Update an existing transaction
- * @access  Private
+ * @desc    Update an existing transaction along with attachments
+ * @access  Private (JWT protected)
+ *
+ * Features:
+ * - Update transaction details
+ * - Delete selected attachments
+ * - Upload new attachments
+ * - Atomic DB transaction (commit / rollback)
+ * ==========================================
  */
 router.put(
   "/update",
+
+  // 🔐 JWT authentication middleware
   authenticationToken,
 
   /**
-   * 📎 Multer middleware
-   * Handles attachment uploads before main controller logic
-   * - Accepts max 5 files under "attachments"
-   * - Handles Multer-specific errors locally (no global error handler)
+   * ==========================================
+   * 📎 MULTER FILE UPLOAD MIDDLEWARE
+   * ==========================================
+   * - Handles attachment uploads before controller
+   * - Accepts max 5 files under key: "attachments"
+   * - Handles Multer-specific errors locally
+   * - Prevents request from reaching controller if upload fails
+   * ==========================================
    */
   (req, res, next) => {
     upload.array("attachments", 5)(req, res, (err) => {
-      // ✅ No upload error → proceed to next middleware/controller
+      // ✅ No Multer error → move to controller
       if (!err) {
         return next();
       }
 
-      // ❌ File size limit exceeded
+      // ❌ File size exceeds configured limit
       if (err.code === "LIMIT_FILE_SIZE") {
         return sendError(res, {
           statusCode: 413,
@@ -330,7 +369,7 @@ router.put(
         });
       }
 
-      // ❌ Any other Multer or file validation error
+      // ❌ Any other Multer / validation error
       return sendError(res, {
         statusCode: 400,
         message: err.message || "File upload failed",
@@ -339,20 +378,25 @@ router.put(
   },
 
   /**
-   * 🧠 Main controller logic
-   * Handles:
-   * - Transaction update
-   * - Attachment deletion
-   * - New attachment insertion
-   * - Atomic DB transaction (commit / rollback)
+   * ==========================================
+   * 🧠 MAIN CONTROLLER LOGIC
+   * ==========================================
+   * Responsibilities:
+   * 1. Validate input
+   * 2. Update transaction record
+   * 3. Delete selected attachments (DB + disk)
+   * 4. Insert new attachments (avoid duplicates)
+   * 5. Maintain DB consistency using transaction
+   * ==========================================
    */
   async (req, res) => {
+    // 👤 Extract authenticated user ID
     const userId = req.userId;
 
-    // 📥 Get transaction ID from query
+    // 📥 Transaction ID from query params
     const { trnId } = req.query;
 
-    // 📥 Get updated values from body
+    // 📥 Updated transaction values from request body
     const {
       categoryId,
       amount,
@@ -361,7 +405,10 @@ router.put(
       deleteAttachmentIds = [], // Optional attachment IDs to delete
     } = req.body;
 
-    // ❗ Validation
+    /**
+     * ❗ BASIC INPUT VALIDATION
+     * Required fields must be present
+     */
     if (!categoryId || !amount || !trnDate) {
       return sendError(res, {
         statusCode: 422,
@@ -369,21 +416,27 @@ router.put(
       });
     }
 
-    // 🔄 Get DB connection for transactional operations
+    // 🔄 Obtain DB connection for transactional operations
     const conn = await db.getConnection();
 
     try {
       /**
-       * 🔐 Begin DB transaction
-       * Ensures:
+       * ==========================================
+       * 🔐 BEGIN DATABASE TRANSACTION
+       * ==========================================
+       * Ensures all DB operations succeed together:
        * - Transaction update
-       * - Attachment delete
-       * - Attachment insert
-       * all succeed together or fail together
+       * - Attachment deletion
+       * - Attachment insertion
+       * ==========================================
        */
       conn.beginTransaction();
 
-      // ✏️ Update transaction (user-safe update)
+      /**
+       * ✏️ UPDATE TRANSACTION RECORD
+       * - Ensures update is user-specific
+       * - Prevents unauthorized updates
+       */
       const [result] = await db.query(
         `
         UPDATE transactions
@@ -398,7 +451,7 @@ router.put(
         [categoryId, amount, note || null, trnDate, trnId, userId]
       );
 
-      // ❌ No record found
+      // ❌ No matching transaction found
       if (result.affectedRows === 0) {
         return sendError(res, {
           statusCode: 404,
@@ -407,11 +460,14 @@ router.put(
       }
 
       /**
-       * 🗑️ Delete selected attachments (if provided)
+       * ==========================================
+       * 🗑️ DELETE SELECTED ATTACHMENTS (OPTIONAL)
+       * ==========================================
        * Steps:
-       * 1. Fetch file paths
+       * 1. Fetch file paths from DB
        * 2. Delete physical files from disk
        * 3. Delete DB records
+       * ==========================================
        */
       if (deleteAttachmentIds.length > 0) {
         const [filesPath] = await db.query(
@@ -424,16 +480,14 @@ router.put(
           [trnId, deleteAttachmentIds]
         );
 
-        console.log(filesPath);
-
-        // 🧹 Remove files from filesystem
+        // 🧹 Delete files from filesystem
         for (const f of filesPath) {
           if (fs.existsSync(f.file_path)) {
             fs.unlinkSync(f.file_path);
           }
         }
 
-        // 🗑️ Remove attachment records from DB
+        // 🗑️ Remove attachment records from database
         await db.query(
           `
           DELETE FROM transaction_attachments
@@ -445,9 +499,13 @@ router.put(
       }
 
       /**
-       * 3️⃣ Add new attachments (if uploaded)
-       * - Files already stored by Multer
-       * - Only DB insertion happens here
+       * ==========================================
+       * 📎 INSERT NEW ATTACHMENTS (OPTIONAL)
+       * ==========================================
+       * - Files already saved by Multer
+       * - Avoids duplicate uploads using file hash
+       * - Inserts only unique attachments
+       * ==========================================
        */
       if (req.files && req.files.length > 0) {
         const values = [];
@@ -496,21 +554,27 @@ router.put(
         }
       }
 
-      // ✅ COMMIT ONLY IF EVERYTHING PASSES
+      /**
+       * ✅ COMMIT TRANSACTION
+       * Executes only if all steps succeed
+       */
       await conn.commit();
 
-      // ✅ Success response
+      // 🎉 Success response
       return sendSuccess(res, {
         statusCode: 200,
         message: "Transaction updated successfully.",
       });
     } catch (err) {
-      // ❌ ROLLBACK EVERYTHING on any failure
+      /**
+       * ❌ ROLLBACK ON FAILURE
+       * Reverts all DB changes on any error
+       */
       await conn.rollback();
 
       /**
-       * 🧹 Cleanup uploaded files
-       * Ensures no orphan files remain if DB operation fails
+       * 🧹 CLEANUP UPLOADED FILES
+       * Prevents orphan files when DB operation fails
        */
       if (req.files) {
         req.files.forEach((f) => {
@@ -525,26 +589,37 @@ router.put(
         message: err.message,
       });
     } finally {
-      // 🔚 Release DB connection
+      // 🔚 Always release DB connection
       conn.release();
     }
   }
 );
 
 /**
+ * ======================================================
+ * 🗑️ DELETE TRANSACTION
+ * ======================================================
  * @route   DELETE /transactions/delete
  * @desc    Delete a transaction
- * @access  Private
+ * @access  Private (JWT protected)
+ *
+ * Responsibilities:
+ * - Delete transaction owned by logged-in user
+ * - Remove related attachment files from disk
+ * - Maintain DB consistency using transaction
  */
 router.delete("/delete", authenticationToken, async (req, res) => {
+  // 👤 Logged-in user ID
   const userId = req.userId;
 
   // 📥 Transaction ID from query
   const { trnId } = req.query;
 
+  // 🔄 Get DB connection for transaction handling
   const conn = await db.getConnection();
 
   try {
+    // 🔐 Begin database transaction
     await conn.beginTransaction();
 
     /**
@@ -569,7 +644,7 @@ router.delete("/delete", authenticationToken, async (req, res) => {
       [userId, trnId]
     );
 
-    // ❌ Not found
+    // ❌ Transaction not found or not owned by user
     if (result.affectedRows === 0) {
       await conn.rollback();
       return sendError(res, {
@@ -588,14 +663,16 @@ router.delete("/delete", authenticationToken, async (req, res) => {
       }
     }
 
+    // ✅ Commit DB transaction
     await conn.commit();
 
-    // ✅ Success response
+    // 🎉 Success response
     return sendSuccess(res, {
       statusCode: 200,
       message: "Transaction deleted successfully.",
     });
   } catch (err) {
+    // ❌ Rollback on any failure
     await conn.rollback();
 
     return sendError(res, {
@@ -603,6 +680,7 @@ router.delete("/delete", authenticationToken, async (req, res) => {
       message: err.message,
     });
   } finally {
+    // 🔚 Always release DB connection
     conn.release();
   }
 });

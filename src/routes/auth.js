@@ -9,9 +9,18 @@ const db = require("../config/db"); // 🗄️ MySQL DB connection
 const { sendSuccess, sendError } = require("../utils/responseHelper"); // 📤 Standard API responses
 
 /**
+ * ======================================================
+ * 👤 USER REGISTRATION
+ * ======================================================
  * @route   POST /register
  * @desc    Register a new user
  * @access  Public
+ *
+ * Flow:
+ * 1. Validate input fields
+ * 2. Check existing user (email / mobile)
+ * 3. Hash password securely
+ * 4. Insert user into database
  */
 router.post("/register", async (req, res) => {
   // 📥 Extract request body
@@ -72,9 +81,18 @@ router.post("/register", async (req, res) => {
 });
 
 /**
+ * ======================================================
+ * 🔐 USER LOGIN
+ * ======================================================
  * @route   GET /login
  * @desc    Authenticate user and return JWT
  * @access  Public
+ *
+ * Flow:
+ * 1. Validate credentials
+ * 2. Verify user existence
+ * 3. Compare password hash
+ * 4. Generate JWT token
  */
 router.get("/login", async (req, res) => {
   // 📥 Extract credentials
@@ -142,4 +160,7 @@ router.get("/login", async (req, res) => {
   }
 });
 
+// =======================================
+// 📤 Export Router
+// =======================================
 module.exports = router;

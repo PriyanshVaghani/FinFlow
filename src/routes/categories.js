@@ -8,10 +8,17 @@ const { sendSuccess, sendError } = require("../utils/responseHelper"); // 📤 S
 const { authenticationToken } = require("../middleware/auth_middleware"); // 🔐 JWT authentication middleware
 
 /**
+ * ======================================================
+ * 📂 GET CATEGORIES
+ * ======================================================
  * @route   GET /categories
  * @desc    Get all categories by type (user + default)
  * @access  Private
  * @query   type
+ *
+ * Notes:
+ * - Returns user-created categories
+ * - Also returns default system categories (user_id IS NULL)
  */
 router.get("/", authenticationToken, async (req, res) => {
   // 📥 Extract query params & user ID
@@ -64,9 +71,16 @@ router.get("/", authenticationToken, async (req, res) => {
 });
 
 /**
+ * ======================================================
+ * ➕ ADD CATEGORY
+ * ======================================================
  * @route   POST /categories/add
  * @desc    Create a new category
  * @access  Private
+ *
+ * Rules:
+ * - Only Income / Expense types allowed
+ * - Prevents duplication of default categories
  */
 router.post("/add", authenticationToken, async (req, res) => {
   // 📥 Extract request body
@@ -142,6 +156,9 @@ router.post("/add", authenticationToken, async (req, res) => {
 });
 
 /**
+ * ======================================================
+ * ✏️ UPDATE CATEGORY
+ * ======================================================
  * @route   PUT /categories/update
  * @desc    Update category name
  * @access  Private
@@ -195,6 +212,9 @@ router.put("/update", authenticationToken, async (req, res) => {
 });
 
 /**
+ * ======================================================
+ * 🗑️ DELETE CATEGORY (SOFT DELETE)
+ * ======================================================
  * @route   DELETE /categories/delete
  * @desc    Delete category (soft delete)
  * @access  Private

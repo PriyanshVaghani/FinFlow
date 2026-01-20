@@ -96,7 +96,7 @@ router.get("/", authenticationToken, async (req, res) => {
         GROUP BY t.trn_id
         ORDER BY t.trn_date DESC
       `,
-      [userId]
+      [userId],
     );
 
     /**
@@ -231,7 +231,7 @@ router.post(
         (user_id, category_id, amount, note, trn_date)
         VALUES (?, ?, ?, ?, ?)
         `,
-        [userId, categoryId, amount, note || null, trnDate]
+        [userId, categoryId, amount, note || null, trnDate],
       );
 
       // 📌 Get newly created transaction ID
@@ -256,7 +256,7 @@ router.post(
               SELECT 1 FROM transaction_attachments
               WHERE trn_id = ? AND file_hash = ?
             `,
-            [trnId, fileHash]
+            [trnId, fileHash],
           );
 
           if (exists) {
@@ -284,7 +284,7 @@ router.post(
               (trn_id, file_name, file_path, file_type, file_size, file_hash)
               VALUES ?
             `,
-            [values]
+            [values],
           );
         }
       }
@@ -320,7 +320,7 @@ router.post(
        */
       conn.release();
     }
-  }
+  },
 );
 
 /**
@@ -448,7 +448,7 @@ router.put(
         WHERE trn_id = ?
           AND user_id = ?     -- Ownership check
         `,
-        [categoryId, amount, note || null, trnDate, trnId, userId]
+        [categoryId, amount, note || null, trnDate, trnId, userId],
       );
 
       // ❌ No matching transaction found
@@ -477,7 +477,7 @@ router.put(
           WHERE trn_id = ?
             AND attachment_id IN (?)
           `,
-          [trnId, deleteAttachmentIds]
+          [trnId, deleteAttachmentIds],
         );
 
         // 🧹 Delete files from filesystem
@@ -494,7 +494,7 @@ router.put(
           WHERE trn_id = ?
             AND attachment_id IN (?)
           `,
-          [trnId, deleteAttachmentIds]
+          [trnId, deleteAttachmentIds],
         );
       }
 
@@ -521,7 +521,7 @@ router.put(
             WHERE trn_id = ?
               AND file_hash = ?
             `,
-            [trnId, fileHash]
+            [trnId, fileHash],
           );
 
           if (exists) {
@@ -549,7 +549,7 @@ router.put(
             (trn_id, file_name, file_path, file_type, file_size, file_hash)
             VALUES ?
             `,
-            [values]
+            [values],
           );
         }
       }
@@ -592,7 +592,7 @@ router.put(
       // 🔚 Always release DB connection
       conn.release();
     }
-  }
+  },
 );
 
 /**
@@ -632,7 +632,7 @@ router.delete("/delete", authenticationToken, async (req, res) => {
       FROM transaction_attachments
       WHERE trn_id = ?
       `,
-      [trnId]
+      [trnId],
     );
 
     // 🗑️ Delete transaction safely (ownership enforced)
@@ -641,7 +641,7 @@ router.delete("/delete", authenticationToken, async (req, res) => {
       DELETE FROM transactions
       WHERE user_id = ? AND trn_id = ?
       `,
-      [userId, trnId]
+      [userId, trnId],
     );
 
     // ❌ Transaction not found or not owned by user
@@ -682,6 +682,155 @@ router.delete("/delete", authenticationToken, async (req, res) => {
   } finally {
     // 🔚 Always release DB connection
     conn.release();
+  }
+});
+
+/**
+ * ======================================================
+ * 🔁 ADD RECURRING TRANSACTION
+ * ======================================================
+ * @route   POST /recurring/add
+ * @desc    Add a recurring expense for logged-in user
+ * @access  Private (JWT protected)
+ *
+ * Responsibilities:
+ * - Validate required recurring expense fields
+ * - Store recurring transaction details
+ * - Support optional note and end date
+ */
+router.post("/recurring/add", authenticationToken, async (req, res) => {
+  // 👤 Logged-in user ID
+  const userId = req.userId;
+
+  // 📥 Extract request body
+  const { categoryId, amount, note, frequency, startDate, endDate } = req.body;
+
+  // ❗ Validation: mandatory fields check
+  if (!categoryId || !amount || !frequency || !startDate) {
+    return sendError(res, {
+      statusCode: 422,
+      message: "Required fields missing",
+    });
+  }
+
+  try {
+    /**
+     * ➕ Insert recurring transaction
+     * - note is optional
+     * - end_date can be NULL (no expiration)
+     */
+    await db.query(
+      `
+        INSERT INTO recurring_transactions
+        (user_id, category_id, amount, note, frequency, start_date, end_date)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `,
+      [
+        userId,
+        categoryId,
+        amount,
+        note || null,
+        frequency,
+        startDate,
+        endDate || null,
+      ],
+    );
+
+    // 🎉 Success response
+    return sendSuccess(res, {
+      statusCode: 201,
+      message: "Recurring expense added successfully",
+    });
+  } catch (err) {
+    // ❌ Handle unexpected server errors
+    return sendError(res, {
+      statusCode: 500,
+      message: err.message,
+    });
+  }
+});
+
+/**
+ * ======================================================
+ * 🔁 UPDATE RECURRING TRANSACTION
+ * ======================================================
+ * @route   PUT /recurring/update
+ * @desc    Update an existing recurring expense
+ * @access  Private (JWT protected)
+ *
+ * Responsibilities:
+ * - Validate required fields
+ * - Ensure user can update only their own recurring expense
+ * - Support optional note and end date updates
+ */
+router.put("/recurring/update", authenticationToken, async (req, res) => {
+  // 👤 Logged-in user ID
+  const userId = req.userId;
+
+  // 📥 Recurring transaction ID from query
+  const { recurringId } = req.query;
+
+  // 📥 Extract request body
+  const { categoryId, amount, note, frequency, startDate, endDate } = req.body;
+
+  // ❗ Validation: mandatory fields check
+  if (!recurringId || !categoryId || !amount || !frequency || !startDate) {
+    return sendError(res, {
+      statusCode: 422,
+      message: "Required fields missing",
+    });
+  }
+
+  try {
+    /**
+     * ✏️ Update recurring transaction
+     * - User-safe update (cannot update others' data)
+     * - end_date can be NULL
+     */
+    const [result] = await db.query(
+      `
+        UPDATE recurring_transactions
+        SET
+          category_id = ?,
+          amount = ?,
+          note = ?,
+          frequency = ?,
+          start_date = ?,
+          end_date = ?
+        WHERE recurring_id = ?
+          AND user_id = ?
+      `,
+      [
+        categoryId,
+        amount,
+        note || null,
+        frequency,
+        startDate,
+        endDate || null,
+        recurringId,
+        userId,
+      ],
+    );
+
+    // ❌ No record found or unauthorized access
+    if (result.affectedRows === 0) {
+      return sendError(res, {
+        statusCode: 404,
+        message: "Recurring expense not found",
+      });
+    }
+
+    // 🎉 Success response
+    return sendSuccess(res, {
+      statusCode: 200,
+      message: "Recurring expense updated successfully",
+    });
+  } catch (err) {
+    // ❌ Handle unexpected server errors
+    return sendError(res, {
+      statusCode: 500,
+      message: err.message,
+    });
   }
 });
 

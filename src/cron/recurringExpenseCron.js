@@ -9,7 +9,7 @@ const db = require("../config/db");
 // =======================================
 /**
  * 🕒 Runs every day at 12:01 AM
- * 
+ *
  * CRON SCHEDULE: "1 0 * * *"
  *
  * ┌───────────── minute (0 - 59)
@@ -46,9 +46,6 @@ const db = require("../config/db");
 // 🔁 Daily Recurring Transaction Job
 // =======================================
 cron.schedule("1 0 * * *", async () => {
-  // 📅 Get today date in YYYY-MM-DD format
-  const today = new Date().toISOString().split("T")[0];
-
   /**
    * 📄 Fetch active recurring transactions
    * Conditions:
@@ -62,17 +59,16 @@ cron.schedule("1 0 * * *", async () => {
     SELECT *
     FROM recurring_transactions
     WHERE is_active = 1
-      AND start_date <= ?
-      AND (end_date IS NULL OR end_date >= ?)
-      AND (last_run_date IS NULL OR last_run_date < ?)
+      AND start_date <= CURDATE()
+      AND (end_date IS NULL OR end_date >= CURDATE())
+      AND (last_run_date IS NULL OR last_run_date < CURDATE())
     `,
-    [today, today, today]
   );
 
   // 🔄 Loop through all valid recurring records
   for (const r of recurringList) {
     // 🧠 Frequency check
-    if (!shouldRunToday(r.frequency, r.last_run_date, today)) continue;
+    if (!shouldRunToday(r.frequency, r.last_run_date)) continue;
 
     /**
      * ➕ Create a new transaction
@@ -82,15 +78,9 @@ cron.schedule("1 0 * * *", async () => {
       `
       INSERT INTO transactions
       (user_id, category_id, amount, note, trn_date)
-      VALUES (?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, CURDATE())
       `,
-      [
-        r.user_id,
-        r.category_id,
-        r.amount,
-        r.note,
-        today,
-      ]
+      [r.user_id, r.category_id, r.amount, r.note],
     );
 
     /**
@@ -100,10 +90,10 @@ cron.schedule("1 0 * * *", async () => {
     await db.query(
       `
       UPDATE recurring_transactions
-      SET last_run_date = ?
+      SET last_run_date = CURDATE()
       WHERE recurring_id = ?
       `,
-      [today, r.recurring_id]
+      [r.recurring_id],
     );
   }
 });
@@ -111,25 +101,28 @@ cron.schedule("1 0 * * *", async () => {
 // =======================================
 // 🧠 Frequency Validation Helper
 // =======================================
-function shouldRunToday(frequency, lastRun, today) {
+function shouldRunToday(frequency, lastRun) {
   // ▶️ First-time execution
   if (!lastRun) return true;
 
   const last = new Date(lastRun);
-  const now = new Date(today);
+  const today = new Date(); // only for interval comparison
 
   switch (frequency) {
     case "DAILY":
       return true;
 
     case "WEEKLY":
-      return now - last >= 7 * 24 * 60 * 60 * 1000;
+      return today - last >= 7 * 24 * 60 * 60 * 1000;
 
     case "MONTHLY":
-      return now.getMonth() !== last.getMonth();
+      return (
+        today.getMonth() !== last.getMonth() ||
+        today.getFullYear() !== last.getFullYear()
+      );
 
     case "YEARLY":
-      return now.getFullYear() !== last.getFullYear();
+      return today.getFullYear() !== last.getFullYear();
 
     default:
       return false;

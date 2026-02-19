@@ -687,6 +687,69 @@ router.delete("/delete", authenticationToken, async (req, res) => {
 
 /**
  * ======================================================
+ * 🔁 GET ALL RECURRING TRANSACTIONS (WITH CATEGORY)
+ * ======================================================
+ * @route   GET /recurring/
+ * @desc    Fetch all recurring expenses with category details
+ * @access  Private (JWT protected)
+ *
+ * Responsibilities:
+ * - Fetch all recurring transactions for logged-in user
+ * - Join category details (name, type)
+ * - Return sorted by latest created
+ */
+router.get("/recurring/", authenticationToken, async (req, res) => {
+  // 👤 Logged-in user ID
+  const userId = req.userId;
+
+  try {
+    /**
+     * 📄 Fetch recurring transactions
+     * - Includes category information
+     * - Ordered by newest first
+     */
+    const [rows] = await db.query(
+      `
+      SELECT
+        r.recurring_id,
+        r.amount,
+        r.note,
+        r.frequency,
+        r.start_date,
+        r.end_date,
+        r.is_active,
+        r.last_run_date,
+        r.created_at,
+
+        -- 📂 Category details
+        c.category_id,
+        c.name,
+        c.type
+      FROM recurring_transactions r
+      INNER JOIN categories c
+        ON c.category_id = r.category_id
+      WHERE r.user_id = ?
+      ORDER BY r.created_at DESC
+      `,
+      [userId],
+    );
+
+    // 🎉 Success response
+    return sendSuccess(res, {
+      statusCode: 200,
+      data: rows,
+    });
+  } catch (err) {
+    // ❌ Handle server errors
+    return sendError(res, {
+      statusCode: 500,
+      message: err.message,
+    });
+  }
+});
+
+/**
+ * ======================================================
  * 🔁 ADD RECURRING TRANSACTION
  * ======================================================
  * @route   POST /recurring/add
@@ -752,67 +815,102 @@ router.post("/recurring/add", authenticationToken, async (req, res) => {
 
 /**
  * ======================================================
- * 🔁 UPDATE RECURRING TRANSACTION
+ * 🔁 UPDATE RECURRING TRANSACTION (Details + Status)
  * ======================================================
  * @route   PUT /recurring/update
- * @desc    Update an existing recurring expense
+ * @desc    Update recurring expense details or activate/deactivate
  * @access  Private (JWT protected)
  *
  * Responsibilities:
- * - Validate required fields
- * - Ensure user can update only their own recurring expense
- * - Support optional note and end date updates
+ * - Allow partial updates (dynamic fields)
+ * - Support status toggle (is_active)
+ * - Ensure user ownership before update
  */
 router.put("/recurring/update", authenticationToken, async (req, res) => {
   // 👤 Logged-in user ID
   const userId = req.userId;
 
-  // 📥 Recurring transaction ID from query
+  // 📥 Recurring ID from query
   const { recurringId } = req.query;
 
-  // 📥 Extract request body
-  const { categoryId, amount, note, frequency, startDate, endDate } = req.body;
+  // 📥 Request body fields
+  const { categoryId, amount, note, frequency, startDate, endDate, isActive } =
+    req.body;
 
-  // ❗ Validation: mandatory fields check
-  if (!recurringId || !categoryId || !amount || !frequency || !startDate) {
+  // ❗ recurringId is mandatory
+  if (!recurringId) {
     return sendError(res, {
       statusCode: 422,
-      message: "Required fields missing",
+      message: "Recurring ID is required",
     });
   }
 
   try {
     /**
-     * ✏️ Update recurring transaction
-     * - User-safe update (cannot update others' data)
-     * - end_date can be NULL
+     * 🛠 Build dynamic update fields
+     * Only provided fields will be updated
+     */
+    const fields = [];
+    const values = [];
+
+    if (categoryId) {
+      fields.push("category_id = ?");
+      values.push(categoryId);
+    }
+
+    if (amount) {
+      fields.push("amount = ?");
+      values.push(amount);
+    }
+
+    if (note !== undefined) {
+      fields.push("note = ?");
+      values.push(note || null);
+    }
+
+    if (frequency) {
+      fields.push("frequency = ?");
+      values.push(frequency);
+    }
+
+    if (startDate) {
+      fields.push("start_date = ?");
+      values.push(startDate);
+    }
+
+    if (endDate !== undefined) {
+      fields.push("end_date = ?");
+      values.push(endDate || null);
+    }
+
+    if (isActive !== undefined) {
+      fields.push("is_active = ?");
+      values.push(isActive);
+    }
+
+    // ❌ No fields provided
+    if (fields.length === 0) {
+      return sendError(res, {
+        statusCode: 422,
+        message: "No fields provided to update",
+      });
+    }
+
+    /**
+     * ✏️ Execute update
+     * Ensures record belongs to logged-in user
      */
     const [result] = await db.query(
       `
         UPDATE recurring_transactions
-        SET
-          category_id = ?,
-          amount = ?,
-          note = ?,
-          frequency = ?,
-          start_date = ?,
-          end_date = ?
+        SET ${fields.join(", ")}
         WHERE recurring_id = ?
           AND user_id = ?
       `,
-      [
-        categoryId,
-        amount,
-        note || null,
-        frequency,
-        startDate,
-        endDate || null,
-        recurringId,
-        userId,
-      ],
+      [...values, recurringId, userId],
     );
 
-    // ❌ No record found or unauthorized access
+    // ❌ Not found or not owned
     if (result.affectedRows === 0) {
       return sendError(res, {
         statusCode: 404,
@@ -826,7 +924,7 @@ router.put("/recurring/update", authenticationToken, async (req, res) => {
       message: "Recurring expense updated successfully",
     });
   } catch (err) {
-    // ❌ Handle unexpected server errors
+    // ❌ Handle server errors
     return sendError(res, {
       statusCode: 500,
       message: err.message,

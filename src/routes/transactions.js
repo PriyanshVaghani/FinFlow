@@ -34,19 +34,45 @@ const getFileHash = (filePath) => {
  * 📥 GET /transactions
  * ======================================================
  * @route   GET /transactions
- * @desc    Fetch all transactions of the logged-in user
+ * @desc    Fetch paginated transactions of the logged-in user
  * @access  Private (JWT protected)
  *
+ * Query Params:
+ * - skip (optional) → Number of records to skip (default: 0)
+ * - take (optional) → Number of records to return (default: 10)
+ *
  * Responsibilities:
- * - Fetch transactions with category info
- * - Attach related files (if any)
- * - Format attachment URLs
+ * - Retrieve transactions with category details
+ * - Include related attachments (if any)
+ * - Aggregate attachments into JSON array
+ * - Format attachment paths into public URLs
+ * - Return pagination metadata (totalCount, hasMore)
  */
 router.get("/", authenticationToken, async (req, res) => {
   // 🔐 Extract userId added by authenticationToken middleware
   const userId = req.userId;
 
+  // 📌 Pagination params
+  // skip  → number of records to ignore (used for OFFSET)
+  // take  → number of records to return (used for LIMIT)
+  // Defaults: skip = 0, take = 10
+  const skip = parseInt(req.query.skip) || 0;
+  const take = parseInt(req.query.take) || 10;
+
   try {
+    // Get total count (for pagination)
+    // Used to:
+    // - Calculate total pages on frontend
+    // - Determine if more records exist (hasMore flag)
+    const [[{ totalCount }]] = await db.query(
+      `
+      SELECT COUNT(*) as totalCount
+      FROM transactions
+      WHERE user_id = ?
+      `,
+      [userId],
+    );
+
     /**
      * 📊 Fetch transactions with attachments
      *
@@ -95,16 +121,19 @@ router.get("/", authenticationToken, async (req, res) => {
         WHERE t.user_id = ?
         GROUP BY t.trn_id
         ORDER BY t.trn_date DESC
+        LIMIT ? OFFSET ?
       `,
-      [userId],
+      [userId, take, skip],
     );
 
     /**
      * 🔄 Post-process attachments
      *
-     * - Remove NULL attachment objects
-     * - Convert Windows paths (\) to URL-safe (/)
-     * - Generate public file URLs
+     * Why this is needed:
+     * - MySQL JSON aggregation may include NULL entries
+     *   because of LEFT JOIN behavior.
+     * - File paths stored in DB may contain Windows-style backslashes.
+     * - Frontend needs absolute URL for direct file access.
      */
     const transactions = rows.map((trn) => {
       // Ensure attachments is a valid array
@@ -114,12 +143,15 @@ router.get("/", authenticationToken, async (req, res) => {
             .filter((a) => a && a.filePath)
             .map((a) => {
               // Normalize file path for URLs
+              // Converts: uploads\file.jpg → uploads/file.jpg
               const cleanPath = a.filePath.replace(/\\/g, "/");
 
               return {
                 ...a,
                 filePath: cleanPath,
                 // Generate full public URL
+                // Example:
+                // http://localhost:5000/uploads/file.jpg
                 url: `${req.protocol}://${req.get("host")}/${cleanPath}`,
               };
             })
@@ -131,10 +163,21 @@ router.get("/", authenticationToken, async (req, res) => {
       };
     });
 
-    // ✅ Send success response
-    return sendSuccess(res, { data: transactions });
+    // hasMore:
+    // - true  → more records available
+    // - false → this is the last page
+    // Logic:
+    // If (skip + take) < totalCount → more data exists
+    return sendSuccess(res, {
+      data: transactions,
+      skip,
+      take,
+      totalCount,
+      hasMore: skip + take < totalCount,
+    });
   } catch (err) {
     // ❌ Handle unexpected server errors
+    // Return error message for debugging (can be removed in production)
     return sendError(res, {
       statusCode: 500,
       message: err.message,

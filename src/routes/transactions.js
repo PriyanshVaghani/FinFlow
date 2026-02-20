@@ -7,6 +7,7 @@ const fs = require("fs"); // 📁 File system (read / delete files)
 const crypto = require("crypto"); // 🔐 Used for file hashing
 const db = require("../config/db"); // 🗄️ MySQL connection pool
 const upload = require("../middleware/upload"); // 📎 Multer upload config
+const { fetchTransactions } = require("../services/transaction.service");
 
 // 🔐 JWT authentication middleware
 const { authenticationToken } = require("../middleware/auth_middleware");
@@ -37,33 +38,52 @@ const getFileHash = (filePath) => {
  * @desc    Fetch paginated transactions of the logged-in user
  * @access  Private (JWT protected)
  *
+ * Architecture Flow:
+ * Controller (this file)
+ *    ↓ (passes baseUrl + pagination)
+ * Service Layer (fetchTransactions)
+ *    ↓
+ * Database
+ *
  * Query Params:
  * - skip (optional) → Number of records to skip (default: 0)
  * - take (optional) → Number of records to return (default: 10)
  *
  * Responsibilities:
- * - Retrieve transactions with category details
- * - Include related attachments (if any)
- * - Aggregate attachments into JSON array
- * - Format attachment paths into public URLs
+ * - Validate & extract pagination params
+ * - Construct dynamic base URL from request
+ * - Fetch total record count
+ * - Call service layer for transaction retrieval
+ * - Service layer handles attachment URL formatting using baseUrl
  * - Return pagination metadata (totalCount, hasMore)
  */
 router.get("/", authenticationToken, async (req, res) => {
   // 🔐 Extract userId added by authenticationToken middleware
+  // Ensures user only accesses their own transactions
   const userId = req.userId;
 
   // 📌 Pagination params
   // skip  → number of records to ignore (used for OFFSET)
   // take  → number of records to return (used for LIMIT)
-  // Defaults: skip = 0, take = 10
+  // parseInt ensures numeric values from query string
   const skip = parseInt(req.query.skip) || 0;
   const take = parseInt(req.query.take) || 10;
 
+  // 🌐 Construct dynamic base URL from current request
+  // Example:
+  // http://localhost:5000
+  // Passed to service layer to generate absolute attachment URLs
+  const baseUrl = `${req.protocol}://${req.get("host")}`;
+
   try {
-    // Get total count (for pagination)
-    // Used to:
-    // - Calculate total pages on frontend
-    // - Determine if more records exist (hasMore flag)
+    /**
+     * 📊 Fetch total transaction count (without LIMIT)
+     *
+     * Purpose:
+     * - Helps frontend calculate total pages
+     * - Used to determine `hasMore`
+     * - Keeps pagination accurate
+     */
     const [[{ totalCount }]] = await db.query(
       `
       SELECT COUNT(*) as totalCount
@@ -74,100 +94,31 @@ router.get("/", authenticationToken, async (req, res) => {
     );
 
     /**
-     * 📊 Fetch transactions with attachments
+     * 📦 Fetch paginated transaction data
      *
-     * - transactions (t): main transaction data
-     * - categories (c): category name & type
-     * - transaction_attachments (ta): optional attachments
-     *
-     * LEFT JOIN is used for attachments because:
-     * - A transaction MAY have zero attachments
-     *
-     * JSON_ARRAYAGG:
-     * - Converts multiple attachment rows into a single JSON array
-     *
-     * COALESCE:
-     * - Ensures attachments is always an array (not NULL)
+     * Delegated to service layer to:
+     * - Keep controller thin
+     * - Separate business logic from routing logic
+     * - Improve maintainability & testability
+     * - Allow service to format attachment URLs using baseUrl
      */
-    const [rows] = await db.query(
-      `
-        SELECT 
-          t.trn_id AS trnId,
-          t.amount,
-          t.note,
-          t.trn_date AS trnDate,
-          c.category_id AS categoryId,
-          c.name AS categoryName,
-          c.type,
-          COALESCE(
-            JSON_ARRAYAGG(
-              CASE 
-                WHEN ta.attachment_id IS NOT NULL THEN JSON_OBJECT(
-                  'id', ta.attachment_id,
-                  'fileName', ta.file_name,
-                  'filePath', ta.file_path,
-                  'fileType', ta.file_type,
-                  'fileSize', ta.file_size
-                )
-              END
-            ),
-            JSON_ARRAY()
-          ) AS attachments
-        FROM transactions t
-        LEFT JOIN transaction_attachments ta 
-          ON ta.trn_id = t.trn_id
-        JOIN categories c 
-          ON c.category_id = t.category_id
-        WHERE t.user_id = ?
-        GROUP BY t.trn_id
-        ORDER BY t.trn_date DESC
-        LIMIT ? OFFSET ?
-      `,
-      [userId, take, skip],
-    );
-
-    /**
-     * 🔄 Post-process attachments
-     *
-     * Why this is needed:
-     * - MySQL JSON aggregation may include NULL entries
-     *   because of LEFT JOIN behavior.
-     * - File paths stored in DB may contain Windows-style backslashes.
-     * - Frontend needs absolute URL for direct file access.
-     */
-    const transactions = rows.map((trn) => {
-      // Ensure attachments is a valid array
-      const attachments = Array.isArray(trn.attachments)
-        ? trn.attachments
-            // Remove NULL objects caused by LEFT JOIN
-            .filter((a) => a && a.filePath)
-            .map((a) => {
-              // Normalize file path for URLs
-              // Converts: uploads\file.jpg → uploads/file.jpg
-              const cleanPath = a.filePath.replace(/\\/g, "/");
-
-              return {
-                ...a,
-                filePath: cleanPath,
-                // Generate full public URL
-                // Example:
-                // http://localhost:5000/uploads/file.jpg
-                url: `${req.protocol}://${req.get("host")}/${cleanPath}`,
-              };
-            })
-        : [];
-
-      return {
-        ...trn,
-        attachments,
-      };
+    const transactions = await fetchTransactions(db, userId, {
+      limit: take,
+      offset: skip,
+      baseUrl,
     });
 
-    // hasMore:
-    // - true  → more records available
-    // - false → this is the last page
-    // Logic:
-    // If (skip + take) < totalCount → more data exists
+    /**
+     * 📄 Pagination Logic
+     *
+     * hasMore is true if:
+     * (skip + take) < totalCount
+     *
+     * Example:
+     * totalCount = 50
+     * skip = 0, take = 10
+     * → 0 + 10 < 50 → true
+     */
     return sendSuccess(res, {
       data: transactions,
       skip,
@@ -176,8 +127,13 @@ router.get("/", authenticationToken, async (req, res) => {
       hasMore: skip + take < totalCount,
     });
   } catch (err) {
-    // ❌ Handle unexpected server errors
-    // Return error message for debugging (can be removed in production)
+    /**
+     * ❌ Error Handling
+     *
+     * - Catches unexpected runtime/database errors
+     * - Returns standardized error response
+     * - err.message included for debugging (remove in production if needed)
+     */
     return sendError(res, {
       statusCode: 500,
       message: err.message,

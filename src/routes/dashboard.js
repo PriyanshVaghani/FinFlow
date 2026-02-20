@@ -6,7 +6,7 @@ const router = express.Router();
 const db = require("../config/db"); // ✅ MySQL DB connection (promise-based)
 const { sendSuccess, sendError } = require("../utils/responseHelper"); // 📤 Standard API response helpers
 const { authenticationToken } = require("../middleware/auth_middleware"); // 🔐 JWT authentication middleware
-
+const { fetchTransactions } = require("../services/transaction.service");
 /**
  * ======================================================
  * 📊 MONTHLY SUMMARY (INCOME / EXPENSE / BALANCE)
@@ -419,6 +419,72 @@ router.get("/month-comparison", authenticationToken, async (req, res) => {
 
     // ❌ Handle server errors
     return sendError(res, { statusCode: 500 });
+  }
+});
+
+/**
+ * ======================================================
+ * 📥 GET /recent-transactions
+ * ======================================================
+ * @route   GET /recent-transactions
+ * @desc    Fetch most recent transactions of the logged-in user
+ * @access  Private (JWT protected)
+ *
+ * Query Params:
+ * - take (optional) → Number of recent records to return (default: 5)
+ *
+ * Responsibilities:
+ * - Extract authenticated user ID
+ * - Construct base URL for attachment links
+ * - Fetch latest transactions using service layer
+ * - Return standardized success response
+ *
+ * Notes:
+ * - Always fetches from offset 0 (latest records only)
+ * - baseUrl is generated at controller level (request-aware)
+ * - baseUrl is passed to service layer for attachment URL construction
+ * - Keeps service reusable while allowing dynamic URL generation
+ */
+router.get("/recent-transactions", authenticationToken, async (req, res) => {
+  // 🔐 Extract user ID from JWT middleware
+  const userId = req.userId;
+
+  // 📌 Number of recent transactions to fetch (default: 5)
+  // parseInt ensures numeric value from query string
+  const take = parseInt(req.query.take) || 5;
+
+  // 🌐 Construct dynamic base URL from current request
+  // Example:
+  // http://localhost:5000
+  const baseUrl = `${req.protocol}://${req.get("host")}`;
+
+  try {
+    /**
+     * 📦 Fetch latest transactions
+     *
+     * - Delegates DB + attachment formatting logic to service layer
+     * - offset is fixed to 0 (always latest entries)
+     * - baseUrl is passed so service can generate absolute file URLs
+     */
+    const transactions = await fetchTransactions(db, userId, {
+      limit: take,
+      offset: 0,
+      baseUrl,
+    });
+
+    // ✅ Send standardized success response
+    return sendSuccess(res, {
+      data: transactions,
+    });
+  } catch (err) {
+    /**
+     * ❌ Handle unexpected errors
+     * Returns 500 Internal Server Error
+     */
+    return sendError(res, {
+      statusCode: 500,
+      message: err.message,
+    });
   }
 });
 

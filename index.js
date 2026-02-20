@@ -22,10 +22,12 @@ app.use(express.urlencoded({ extended: true }));
 // =======================================
 // All authentication-related APIs will start with /api/auth
 const authRoutes = require("./src/routes/auth");
+const dashboardRoutes = require("./src/routes/dashboard");
 const categoriesRoutes = require("./src/routes/categories");
 const transactionsRoutes = require("./src/routes/transactions");
 
 app.use("/api/auth", authRoutes);
+app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/categories", categoriesRoutes);
 app.use("/api/transactions", transactionsRoutes);
 

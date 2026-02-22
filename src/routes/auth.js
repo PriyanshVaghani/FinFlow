@@ -84,7 +84,7 @@ router.post("/register", async (req, res) => {
  * ======================================================
  * 🔐 USER LOGIN
  * ======================================================
- * @route   GET /login
+ * @route   POST /login
  * @desc    Authenticate user and return JWT
  * @access  Public
  *
@@ -94,7 +94,7 @@ router.post("/register", async (req, res) => {
  * 3. Compare password hash
  * 4. Generate JWT token
  */
-router.get("/login", async (req, res) => {
+router.post("/login", async (req, res) => {
   // 📥 Extract credentials
   const { email, password } = req.body;
 

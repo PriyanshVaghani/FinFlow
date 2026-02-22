@@ -327,14 +327,15 @@ router.post(
  * ✏️ UPDATE TRANSACTION API
  * ==========================================
  * @route   PUT /transactions/update
- * @desc    Update an existing transaction along with attachments
+ * @desc    Partially update a transaction and/or attachments
  * @access  Private (JWT protected)
  *
- * Features:
- * - Update transaction details
- * - Delete selected attachments
- * - Upload new attachments
- * - Atomic DB transaction (commit / rollback)
+ * Optional body fields (send only what you want to update):
+ * - categoryId, amount, note, trnDate
+ * - deleteAttachmentIds: array of attachment IDs to remove (or single id)
+ * - attachments: new files (multipart)
+ *
+ * At least one of: transaction field(s), deleteAttachmentIds, or new attachments required.
  * ==========================================
  */
 router.put(
@@ -378,40 +379,54 @@ router.put(
 
   /**
    * ==========================================
-   * 🧠 MAIN CONTROLLER LOGIC
+   * 🧠 MAIN CONTROLLER LOGIC (partial update)
    * ==========================================
-   * Responsibilities:
-   * 1. Validate input
-   * 2. Update transaction record
-   * 3. Delete selected attachments (DB + disk)
-   * 4. Insert new attachments (avoid duplicates)
-   * 5. Maintain DB consistency using transaction
+   * - Only provided transaction fields are updated
+   * - Optional: add new attachments, remove by attachment IDs
    * ==========================================
    */
   async (req, res) => {
     // 👤 Extract authenticated user ID
     const userId = req.userId;
 
-    // 📥 Transaction ID from query params
+    // 📥 Transaction ID from query (required)
     const { trnId } = req.query;
 
-    // 📥 Updated transaction values from request body
+    // 📥 Optional transaction fields (send only what you want to update)
     const {
       categoryId,
       amount,
       note,
       trnDate,
-      deleteAttachmentIds = [], // Optional attachment IDs to delete
+      deleteAttachmentIds: rawDeleteIds,
     } = req.body;
 
-    /**
-     * ❗ BASIC INPUT VALIDATION
-     * Required fields must be present
-     */
-    if (!categoryId || !amount || !trnDate) {
+    const deleteAttachmentIds = Array.isArray(rawDeleteIds)
+      ? rawDeleteIds
+      : rawDeleteIds != null
+        ? [rawDeleteIds]
+        : [];
+
+    const hasTransactionUpdates =
+      categoryId !== undefined ||
+      amount !== undefined ||
+      note !== undefined ||
+      trnDate !== undefined;
+    const hasAttachmentRemoval = deleteAttachmentIds.length > 0;
+    const hasNewAttachments = req.files && req.files.length > 0;
+
+    if (!trnId) {
       return sendError(res, {
         statusCode: 422,
-        message: "categoryId, amount and trnDate are required.",
+        message: "trnId is required (query param).",
+      });
+    }
+
+    if (!hasTransactionUpdates && !hasAttachmentRemoval && !hasNewAttachments) {
+      return sendError(res, {
+        statusCode: 422,
+        message:
+          "Provide at least one field to update (categoryId, amount, note, trnDate), and/or deleteAttachmentIds, and/or new attachments.",
       });
     }
 
@@ -419,43 +434,60 @@ router.put(
     const conn = await db.getConnection();
 
     try {
-      /**
-       * ==========================================
-       * 🔐 BEGIN DATABASE TRANSACTION
-       * ==========================================
-       * Ensures all DB operations succeed together:
-       * - Transaction update
-       * - Attachment deletion
-       * - Attachment insertion
-       * ==========================================
-       */
-      conn.beginTransaction();
+      await conn.beginTransaction();
 
-      /**
-       * ✏️ UPDATE TRANSACTION RECORD
-       * - Ensures update is user-specific
-       * - Prevents unauthorized updates
-       */
-      const [result] = await db.query(
-        `
-        UPDATE transactions
-        SET 
-          category_id = ?,    -- Updated category
-          amount = ?,         -- Updated amount
-          note = ?,           -- Updated note
-          trn_date = ?        -- Updated transaction date
-        WHERE trn_id = ?
-          AND user_id = ?     -- Ownership check
-        `,
-        [categoryId, amount, note || null, trnDate, trnId, userId],
-      );
+      // ✏️ UPDATE TRANSACTION RECORD (only provided fields)
+      if (hasTransactionUpdates) {
+        const setFields = [];
+        const setValues = [];
 
-      // ❌ No matching transaction found
-      if (result.affectedRows === 0) {
-        return sendError(res, {
-          statusCode: 404,
-          message: "Transaction not found.",
-        });
+        if (categoryId !== undefined) {
+          setFields.push("category_id = ?");
+          setValues.push(categoryId);
+        }
+        if (amount !== undefined) {
+          setFields.push("amount = ?");
+          setValues.push(amount);
+        }
+        if (note !== undefined) {
+          setFields.push("note = ?");
+          setValues.push(note === "" ? null : note);
+        }
+        if (trnDate !== undefined) {
+          setFields.push("trn_date = ?");
+          setValues.push(trnDate);
+        }
+
+        const [result] = await conn.query(
+          `
+          UPDATE transactions
+          SET ${setFields.join(", ")}
+          WHERE trn_id = ?
+            AND user_id = ?
+          `,
+          [...setValues, trnId, userId],
+        );
+
+        if (result.affectedRows === 0) {
+          await conn.rollback();
+          return sendError(res, {
+            statusCode: 404,
+            message: "Transaction not found.",
+          });
+        }
+      } else {
+        // No transaction fields to update → still verify transaction exists and belongs to user
+        const [[row]] = await conn.query(
+          "SELECT 1 FROM transactions WHERE trn_id = ? AND user_id = ?",
+          [trnId, userId],
+        );
+        if (!row) {
+          await conn.rollback();
+          return sendError(res, {
+            statusCode: 404,
+            message: "Transaction not found.",
+          });
+        }
       }
 
       /**
@@ -469,7 +501,7 @@ router.put(
        * ==========================================
        */
       if (deleteAttachmentIds.length > 0) {
-        const [filesPath] = await db.query(
+        const [filesPath] = await conn.query(
           `
           SELECT file_path
           FROM transaction_attachments
@@ -487,7 +519,7 @@ router.put(
         }
 
         // 🗑️ Remove attachment records from database
-        await db.query(
+        await conn.query(
           `
           DELETE FROM transaction_attachments
           WHERE trn_id = ?
@@ -635,7 +667,7 @@ router.delete("/delete", authenticationToken, async (req, res) => {
     );
 
     // 🗑️ Delete transaction safely (ownership enforced)
-    const [result] = await db.query(
+    const [result] = await conn.query(
       `
       DELETE FROM transactions
       WHERE user_id = ? AND trn_id = ?

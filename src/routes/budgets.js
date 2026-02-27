@@ -399,6 +399,191 @@ router.delete("/delete", authenticationToken, async (req, res) => {
   }
 });
 
+/**
+ * ======================================================
+ * 📊 GET /analytics
+ * ======================================================
+ * @route   GET /analytics
+ * @desc    Fetch monthly budget analytics for a specific month
+ * @access  Private
+ *
+ * Query Params:
+ * - month (required) → Format: YYYY-MM
+ *
+ * Responsibilities:
+ * - Validate month format
+ * - Fetch budget vs spending per category
+ * - Calculate totals and percentages
+ * - Identify over-budget categories
+ * - Return structured analytics response
+ */
+router.get("/analytics", authenticationToken, async (req, res) => {
+  // Extract month from query params
+  const { month } = req.query;
+
+  // Logged-in user ID (from JWT middleware)
+  const userId = req.userId;
+
+  // 🛑 Validation: Month Required
+  if (!month) {
+    return sendError(res, {
+      statusCode: 422,
+      message: "month is required",
+    });
+  }
+
+  /**
+   * ------------------------------------------------------
+   * 🛑 Validation: Month Format (YYYY-MM)
+   * ------------------------------------------------------
+   * Regex explanation:
+   * ^\d{4}        → 4-digit year
+   * -
+   * (0[1-9]|1[0-2]) → Month from 01 to 12
+   */
+  const monthRegex = /^\d{4}-(0[1-9]|1[0-2])$/;
+
+  if (!monthRegex.test(month)) {
+    return sendError(res, {
+      statusCode: 422,
+      message: "month must be in YYYY-MM format",
+    });
+  }
+
+  try {
+    /**
+     * ------------------------------------------------------
+     * 📊 SQL Query
+     * ------------------------------------------------------
+     * Tables:
+     * - budgets (b)       → Monthly allocated budgets per category
+     * - categories (c)    → Category details
+     * - transactions (t)  → User spending transactions
+     *
+     * Logic:
+     * - Join budgets with categories
+     * - LEFT JOIN transactions to calculate spending
+     * - Filter transactions by same user and same month
+     * - Aggregate total spent using SUM()
+     * - Use COALESCE to avoid NULL when no transactions exist
+     */
+    const [rows] = await db.query(
+      `
+      SELECT
+        b.budget_id,
+        b.month,
+        CAST(b.amount AS DOUBLE) AS budgetAmount,
+        c.category_id,
+        c.name AS categoryName,
+        CAST(COALESCE(SUM(t.amount), 0) AS DOUBLE) AS spentAmount
+      FROM budgets b
+      JOIN categories c
+        ON b.category_id = c.category_id
+      LEFT JOIN transactions t
+        ON t.category_id = b.category_id
+        AND t.user_id = b.user_id
+        AND DATE_FORMAT(t.trn_date, '%Y-%m') = b.month
+      WHERE b.user_id = ?
+        AND b.month = ?
+      GROUP BY b.budget_id, c.category_id, c.name, b.amount, b.month
+      `,
+      [userId, month],
+    );
+
+    // 📈 Initialize Summary Counters
+    let totalBudgetAllocated = 0;
+    let totalSpent = 0;
+    let overBudgetCategoriesCount = 0;
+
+    // 🔄 Process Each Category Row
+    const categories = rows.map((row) => {
+      const budgetAmount = Number(row.budgetAmount);
+      const spentAmount = Number(row.spentAmount);
+
+      // Remaining amount calculation
+      const remainingAmount = budgetAmount - spentAmount;
+
+      // Percentage used (avoid division by zero)
+      const percentageUsed =
+        budgetAmount > 0
+          ? Number(((spentAmount / budgetAmount) * 100).toFixed(2))
+          : 0;
+
+      // Over-budget check
+      const isOverBudget = spentAmount > budgetAmount;
+
+      // Calculate exceeded amount (if any)
+      const overAmount = isOverBudget
+        ? Number((spentAmount - budgetAmount).toFixed(2))
+        : 0;
+
+      /**
+       * Budget Status Rules:
+       * - < 70%       → Safe
+       * - 70% - 99%   → Warning
+       * - >= 100%     → Exceeded
+       */
+      let status = "Safe";
+
+      if (percentageUsed >= 100) {
+        status = "Exceeded";
+      } else if (percentageUsed >= 70) {
+        status = "Warning";
+      }
+
+      // Count categories exceeding budget
+      if (isOverBudget) overBudgetCategoriesCount++;
+
+      // Accumulate totals
+      totalBudgetAllocated += budgetAmount;
+      totalSpent += spentAmount;
+
+      return {
+        budgetId: row.budget_id,
+        categoryId: row.category_id,
+        categoryName: row.categoryName,
+        budgetAmount,
+        spentAmount,
+        remainingAmount: Number(remainingAmount.toFixed(2)),
+        percentageUsed,
+        isOverBudget,
+        overAmount,
+        status,
+      };
+    });
+
+    // 📊 Calculate Overall Summary
+    const totalRemaining = totalBudgetAllocated - totalSpent;
+
+    const overallPercentageUsed =
+      totalBudgetAllocated > 0
+        ? Number(((totalSpent / totalBudgetAllocated) * 100).toFixed(2))
+        : 0;
+
+    // ✅ Success Response
+    return sendSuccess(res, {
+      statusCode: 200,
+      data: {
+        month,
+        summary: {
+          totalBudgetAllocated: Number(totalBudgetAllocated.toFixed(2)),
+          totalSpent: Number(totalSpent.toFixed(2)),
+          totalRemaining: Number(totalRemaining.toFixed(2)),
+          overallPercentageUsed,
+          overBudgetCategoriesCount,
+        },
+        categories,
+      },
+    });
+  } catch (err) {
+    // ❌ Error Handling
+    return sendError(res, {
+      statusCode: 500,
+      message: err.message,
+    });
+  }
+});
+
 // =======================================
 // 📦 Export Router
 // =======================================

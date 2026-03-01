@@ -3,17 +3,20 @@
 // =======================================
 const express = require("express");
 const router = express.Router();
+
 const fs = require("fs"); // 📁 File system (read / delete files)
 const crypto = require("crypto"); // 🔐 Used for file hashing
 const db = require("../config/db"); // 🗄️ MySQL connection pool
 const upload = require("../middleware/upload"); // 📎 Multer upload config
-const { fetchTransactions } = require("../services/transaction.service");
+
+const { fetchTransactions } = require("../services/transaction.service"); // 📊 Transaction service (filtering, sorting, pagination)
+const { isValidISODate } = require("../utils/validation"); // ✅ ISO date validation utility
 
 // 🔐 JWT authentication middleware
-const { authenticationToken } = require("../middleware/auth_middleware");
+const { authenticationToken } = require("../middleware/auth_middleware"); // 🔑 Verifies access token & extracts userId
 
 // 📤 Standard API response helpers
-const { sendSuccess, sendError } = require("../utils/responseHelper");
+const { sendSuccess, sendError } = require("../utils/responseHelper"); // 📦 Unified API success & error responses
 
 // =======================================
 // 🔐 Generate File Hash (SHA-256)
@@ -35,12 +38,12 @@ const getFileHash = (filePath) => {
  * 📥 GET /transactions
  * ======================================================
  * @route   GET /transactions
- * @desc    Fetch paginated transactions of the logged-in user
+ * @desc    Fetch paginated & filtered transactions of the logged-in user
  * @access  Private (JWT protected)
  *
  * Architecture Flow:
  * Controller (this file)
- *    ↓ (passes baseUrl + pagination)
+ *    ↓ (passes filters + pagination + sorting + baseUrl)
  * Service Layer (fetchTransactions)
  *    ↓
  * Database
@@ -49,91 +52,237 @@ const getFileHash = (filePath) => {
  * - skip (optional) → Number of records to skip (default: 0)
  * - take (optional) → Number of records to return (default: 10)
  *
+ * 🔎 Filtering Params (all optional):
+ * - startDate (YYYY-MM-DD)
+ * - endDate (YYYY-MM-DD)
+ * - categoryIds (single or multiple)
+ * - type (income | expense)
+ * - minAmount
+ * - maxAmount
+ * - search (matches note or category name)
+ *
+ * 📊 Sorting Params:
+ * - sortBy (amount | trn_date | categoryName)
+ * - order (asc | desc)
+ *
  * Responsibilities:
  * - Validate & extract pagination params
+ * - Validate filter inputs (date, amount, type, search)
+ * - Validate sorting inputs (safe DB columns only)
  * - Construct dynamic base URL from request
- * - Fetch total record count
- * - Call service layer for transaction retrieval
- * - Service layer handles attachment URL formatting using baseUrl
+ * - Delegate filtering + sorting to service layer
  * - Return pagination metadata (totalCount, hasMore)
  */
 router.get("/", authenticationToken, async (req, res) => {
-  // 🔐 Extract userId added by authenticationToken middleware
-  // Ensures user only accesses their own transactions
+
+  // 🔐 Extract authenticated user ID from middleware.
+  // This ensures each user can only access their own transactions.
   const userId = req.userId;
 
-  // 📌 Pagination params
-  // skip  → number of records to ignore (used for OFFSET)
-  // take  → number of records to return (used for LIMIT)
-  // parseInt ensures numeric values from query string
-  const skip = parseInt(req.query.skip) || 0;
-  const take = parseInt(req.query.take) || 10;
+  // 📄 Pagination Parameters
+  // Math.max prevents negative values (e.g., skip=-10).
+  // parseInt converts query string to number safely.
+  const skip = Math.max(0, parseInt(req.query.skip) || 0);
+  const take = Math.max(0, parseInt(req.query.take) || 10);
 
-  // 🌐 Construct dynamic base URL from current request
-  // Example:
-  // http://localhost:5000
-  // Passed to service layer to generate absolute attachment URLs
+  // 📅 Date Range Filters
+  const startDate = req.query.startDate;
+  const endDate = req.query.endDate;
+
+  // Validate ISO date format to prevent invalid date parsing in DB queries.
+  // This avoids runtime SQL errors and inconsistent filtering.
+  if (startDate && !isValidISODate(startDate)) {
+    return sendError(res, {
+      statusCode: 400,
+      message: "Invalid startDate format. Use YYYY-MM-DD",
+    });
+  }
+
+  if (endDate && !isValidISODate(endDate)) {
+    return sendError(res, {
+      statusCode: 400,
+      message: "Invalid endDate format. Use YYYY-MM-DD",
+    });
+  }
+
+  // Logical validation: startDate must not exceed endDate.
+  // Prevents meaningless queries like future-to-past range.
+  if (startDate && endDate && new Date(startDate) > new Date(endDate)) {
+    return sendError(res, {
+      statusCode: 400,
+      message: "startDate cannot be greater than endDate",
+    });
+  }
+
+  // 📂 Category Filter (supports single or multiple IDs)
+  let categoryIds = req.query.categoryIds;
+
+  if (!categoryIds) {
+    categoryIds = [];
+  } else if (!Array.isArray(categoryIds)) {
+    categoryIds = [categoryIds];
+  }
+
+  // Keep only numeric IDs.
+  // This prevents SQL injection and invalid category filtering.
+  categoryIds = categoryIds
+    .filter((id) => /^\d+$/.test(id))
+    .map(Number);
+
+  // 🔄 Type Filter (income / expense)
+  let type = req.query.type;
+
+  if (type) {
+    type = type.toLowerCase();
+
+    // Restrict to allowed values to prevent invalid filtering logic.
+    if (!["income", "expense"].includes(type)) {
+      return sendError(res, {
+        statusCode: 400,
+        message: "Invalid type. Allowed values: income, expense",
+      });
+    }
+  }
+
+  // 💰 Amount Range Filters
+  const rawMinAmount = req.query.minAmount;
+  const rawMaxAmount = req.query.maxAmount;
+
+  let minAmount;
+  let maxAmount;
+
+  // Validate minimum amount
+  if (rawMinAmount !== undefined) {
+    minAmount = Number(rawMinAmount);
+
+    // Number.isFinite ensures value is a real number (not NaN, Infinity, etc.)
+    // Prevents malformed numeric queries.
+    if (!Number.isFinite(minAmount)) {
+      return sendError(res, {
+        statusCode: 400,
+        message: "minAmount must be a valid number",
+      });
+    }
+  }
+
+  // Validate maximum amount
+  if (rawMaxAmount !== undefined) {
+    maxAmount = Number(rawMaxAmount);
+
+    if (!Number.isFinite(maxAmount)) {
+      return sendError(res, {
+        statusCode: 400,
+        message: "maxAmount must be a valid number",
+      });
+    }
+  }
+
+  // Logical validation: max must not be smaller than min.
+  // Prevents contradictory filter ranges.
+  if (
+    minAmount !== undefined &&
+    maxAmount !== undefined &&
+    maxAmount < minAmount
+  ) {
+    return sendError(res, {
+      statusCode: 400,
+      message: "maxAmount must be greater than or equal to minAmount",
+    });
+  }
+
+  // 🔍 Search Filter (note or category name)
+  let search = req.query.search;
+
+  if (search !== undefined) {
+
+    if (typeof search !== "string") {
+      return sendError(res, {
+        statusCode: 400,
+        message: "Search must be a string",
+      });
+    }
+
+    search = search.trim();
+
+    // Prevent overly long search inputs.
+    // Protects performance and avoids abuse (e.g., extremely long LIKE queries).
+    if (search.length > 100) {
+      return sendError(res, {
+        statusCode: 400,
+        message: "Search query too long (max 100 characters)",
+      });
+    }
+  }
+
+  // 📊 Sorting Validation
+  // Only allow whitelisted DB columns.
+  // This prevents SQL injection through dynamic ORDER BY.
+  const allowedSortFields = {
+    amount: "t.amount",
+    trn_date: "t.trn_date",
+    categoryName: "c.name",
+  };
+
+  const allowedOrders = ["asc", "desc"];
+
+  let sortBy = req.query.sortBy || "trn_date";
+  let order = req.query.order || "desc";
+
+  if (!allowedSortFields[sortBy]) {
+    return sendError(res, {
+      statusCode: 400,
+      message: "Invalid sort field",
+    });
+  }
+
+  if (!allowedOrders.includes(order.toLowerCase())) {
+    return sendError(res, {
+      statusCode: 400,
+      message: "Invalid order value",
+    });
+  }
+
+  order = order.toUpperCase();
+
+  // Safe DB column mapping
+  const safeSortColumn = allowedSortFields[sortBy];
+
+  // 🌐 Base URL Construction
+  // Needed for generating absolute URLs for file attachments.
+  // Avoids hardcoding domain values inside service layer.
   const baseUrl = `${req.protocol}://${req.get("host")}`;
 
   try {
-    /**
-     * 📊 Fetch total transaction count (without LIMIT)
-     *
-     * Purpose:
-     * - Helps frontend calculate total pages
-     * - Used to determine `hasMore`
-     * - Keeps pagination accurate
-     */
-    const [[{ totalCount }]] = await db.query(
-      `
-      SELECT COUNT(*) as totalCount
-      FROM transactions
-      WHERE user_id = ?
-      `,
-      [userId],
-    );
-
-    /**
-     * 📦 Fetch paginated transaction data
-     *
-     * Delegated to service layer to:
-     * - Keep controller thin
-     * - Separate business logic from routing logic
-     * - Improve maintainability & testability
-     * - Allow service to format attachment URLs using baseUrl
-     */
-    const transactions = await fetchTransactions(db, userId, {
+    // Delegate filtering, sorting, pagination to service layer.
+    // Keeps controller thin and maintains separation of concerns.
+    const result = await fetchTransactions(db, userId, {
       limit: take,
       offset: skip,
       baseUrl,
+      startDate,
+      endDate,
+      categoryIds,
+      type,
+      minAmount,
+      maxAmount,
+      search,
+      sortBy: safeSortColumn,
+      order,
     });
 
-    /**
-     * 📄 Pagination Logic
-     *
-     * hasMore is true if:
-     * (skip + take) < totalCount
-     *
-     * Example:
-     * totalCount = 50
-     * skip = 0, take = 10
-     * → 0 + 10 < 50 → true
-     */
+    // hasMore indicates whether additional records exist.
+    // Useful for frontend infinite scroll or pagination UI.
     return sendSuccess(res, {
-      data: transactions,
+      data: result.transactions,
       skip,
       take,
-      totalCount,
-      hasMore: skip + take < totalCount,
+      totalCount: result.total,
+      hasMore: skip + take < result.total,
     });
+
   } catch (err) {
-    /**
-     * ❌ Error Handling
-     *
-     * - Catches unexpected runtime/database errors
-     * - Returns standardized error response
-     * - err.message included for debugging (remove in production if needed)
-     */
+    // Catch unexpected database/runtime errors.
+    // Standardized error response keeps API consistent.
     return sendError(res, {
       statusCode: 500,
       message: err.message,

@@ -3,10 +3,10 @@
 // =======================================
 const express = require("express");
 const router = express.Router();
-const bcrypt = require("bcrypt"); // 🔐 For hashing & verifying passwords
 const jwt = require("jsonwebtoken"); // 🔑 For generating JWT tokens
 const db = require("../config/db"); // 🗄️ MySQL DB connection
 const { sendSuccess, sendError } = require("../utils/responseHelper"); // 📤 Standard API responses
+const { registerUser, loginUser } = require("../services/auth.service"); // 👤 User auth services
 
 /**
  * ======================================================
@@ -18,9 +18,8 @@ const { sendSuccess, sendError } = require("../utils/responseHelper"); // 📤 S
  *
  * Flow:
  * 1. Validate input fields
- * 2. Check existing user (email / mobile)
- * 3. Hash password securely
- * 4. Insert user into database
+ * 2. Register user via service (checks existence, hashes password, inserts)
+ * 3. Send success response
  */
 router.post("/register", async (req, res) => {
   // 📥 Extract request body
@@ -35,44 +34,23 @@ router.post("/register", async (req, res) => {
   }
 
   try {
-    // 2️⃣ Check if user already exists (email or mobile)
-    const [existing] = await db.query(
-      "SELECT user_id FROM users WHERE email = ? OR mobile_no = ?",
-      [email, mobileNo]
-    );
+    // 2️⃣ Register the user via service
+    const userData = await registerUser({ name, email, password, mobileNo });
 
-    if (existing.length > 0) {
-      return sendError(res, {
-        statusCode: 409, // Conflict
-        message: "User already exists",
-      });
-    }
-
-    // 3️⃣ Hash the password before storing
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    // 4️⃣ Insert new user into database
-    const [result] = await db.query(
-      `
-      INSERT INTO users (name, email, password_hash, mobile_no)
-      VALUES (?, ?, ?, ?)
-      `,
-      [name, email, hashedPassword, mobileNo]
-    );
-
-    // 5️⃣ Send success response
+    // 3️⃣ Send success response
     return sendSuccess(res, {
       statusCode: 201, // Created
       message: "User registered successfully",
-      data: {
-        userId: result.insertId,
-        name,
-        email,
-        mobileNo,
-      },
+      data: userData,
     });
   } catch (err) {
     // ❌ Handle unexpected errors
+    if (err.message === "User already exists") {
+      return sendError(res, {
+        statusCode: 409, // Conflict
+        message: err.message,
+      });
+    }
     return sendError(res, {
       statusCode: 500,
       message: err.message,
@@ -90,9 +68,9 @@ router.post("/register", async (req, res) => {
  *
  * Flow:
  * 1. Validate credentials
- * 2. Verify user existence
- * 3. Compare password hash
- * 4. Generate JWT token
+ * 2. Authenticate user via service (verify existence and password)
+ * 3. Generate JWT token
+ * 4. Send success response
  */
 router.post("/login", async (req, res) => {
   // 📥 Extract credentials
@@ -107,52 +85,36 @@ router.post("/login", async (req, res) => {
   }
 
   try {
-    // 2️⃣ Fetch user by email
-    const [existing] = await db.query("SELECT * FROM users WHERE email = ?", [
-      email,
-    ]);
+    // 2️⃣ Authenticate user via service
+    const user = await loginUser(email, password);
 
-    // ❌ User not found
-    if (existing.length === 0) {
-      return sendError(res, {
-        statusCode: 401,
-        message: "User not found",
-      });
-    }
-
-    const user = existing[0];
-
-    // 3️⃣ Verify password
-    const isPasswordValid = await bcrypt.compare(password, user.password_hash);
-
-    if (!isPasswordValid) {
-      return sendError(res, {
-        statusCode: 401,
-        message: "Invalid credentials",
-      });
-    }
-
-    // 4️⃣ Generate JWT token
+    // 3️⃣ Generate JWT token
     const token = jwt.sign(
-      { userId: user.user_id }, // Payload
+      { userId: user.userId }, // Payload
       process.env.JWT_SECRET, // Secret key
-      { expiresIn: process.env.JWT_EXPIRES_IN } // Expiry time
+      { expiresIn: process.env.JWT_EXPIRES_IN }, // Expiry time
     );
 
-    // 5️⃣ Send success response
+    // 4️⃣ Send success response
     return sendSuccess(res, {
       statusCode: 200,
       message: "User login successfully",
       data: {
         token,
-        userId: user.user_id,
-        name: user.name,
-        email: user.email,
-        mobileNo: user.mobile_no,
+        ...user,
       },
     });
   } catch (err) {
-    // ❌ Server / DB error
+    // ❌ Handle authentication errors
+    if (
+      err.message === "User not found" ||
+      err.message === "Invalid credentials"
+    ) {
+      return sendError(res, {
+        statusCode: 401,
+        message: err.message,
+      });
+    }
     return sendError(res, {
       statusCode: 500,
       message: err.message,

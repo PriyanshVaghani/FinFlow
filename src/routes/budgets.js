@@ -3,9 +3,14 @@
 // =======================================
 const express = require("express");
 const router = express.Router();
-const db = require("../config/db"); // ✅ MySQL DB connection (promise-based)
 const { sendSuccess, sendError } = require("../utils/responseHelper"); // 📤 Standard API response helpers
 const { authenticationToken } = require("../middleware/auth_middleware"); // 🔐 JWT authentication middleware
+const {
+  getBudgets,
+  addBudget,
+  updateBudget,
+  deleteBudget,
+} = require("../services/budgets.service"); // 📂 Budget services
 
 /**
  * ======================================================
@@ -64,28 +69,8 @@ router.get("/", authenticationToken, async (req, res) => {
      * CAST(... AS DOUBLE):
      * - Ensures numeric values are returned (not strings)
      */
-    const [rows] = await db.query(
-      `
-        SELECT 
-          b.budget_id,
-          b.month,
-          CAST(b.amount AS DOUBLE) AS budgetAmount,
-          c.category_id,
-          c.name AS categoryName,
-          CAST(COALESCE(SUM(t.amount), 0) AS DOUBLE) AS spentAmount
-        FROM budgets b
-        JOIN categories c
-          ON b.category_id = c.category_id
-        LEFT JOIN transactions t
-          ON t.category_id = b.category_id
-          AND t.user_id = b.user_id
-          AND DATE_FORMAT(t.trn_date, '%Y-%m') = b.month
-        WHERE b.user_id = ?
-          AND b.month = ?
-        GROUP BY b.budget_id;
-      `,
-      [userId, month],
-    );
+    // 2️⃣ Fetch budgets via service
+    const rows = await getBudgets(userId, month);
 
     // ✅ Return formatted success response
     return sendSuccess(res, {
@@ -150,64 +135,29 @@ router.post("/add", authenticationToken, async (req, res) => {
   }
 
   try {
-    // 4️⃣ Validate category:
-    // - Must be Expense type
-    // - Must be active
-    // - Must belong to user OR be global (user_id IS NULL)
-    const [category] = await db.query(
-      `
-      SELECT category_id FROM categories
-      WHERE category_id = ?
-        AND type = 'Expense'
-        AND (user_id IS NULL OR user_id = ?)
-        AND is_active = 1
-      `,
-      [categoryId, userId],
-    );
-
-    if (category.length === 0) {
-      return sendError(res, {
-        statusCode: 404,
-        message: "Invalid expense category",
-      });
-    }
-
-    // 5️⃣ Prevent duplicate budget for same month & category
-    const [existingBudget] = await db.query(
-      `
-      SELECT budget_id FROM budgets
-      WHERE user_id = ?
-        AND category_id = ?
-        AND month = ?
-      `,
-      [userId, categoryId, month],
-    );
-
-    if (existingBudget.length > 0) {
-      return sendError(res, {
-        statusCode: 409,
-        message: "Budget already exists for this category and month",
-      });
-    }
-
-    // 6️⃣ Insert new budget record
-    const [result] = await db.query(
-      `
-      INSERT INTO budgets (user_id, category_id, month, amount)
-      VALUES (?, ?, ?, ?)
-      `,
-      [userId, categoryId, month, amount],
-    );
+    // 2️⃣ Add budget via service
+    const data = await addBudget(userId, categoryId, month, amount);
 
     return sendSuccess(res, {
       statusCode: 201,
       message: "Budget created successfully",
-      data: {
-        budgetId: result.insertId,
-      },
+      data,
     });
   } catch (err) {
-    // Handle unique constraint error (DB-level protection)
+    if (err.message === "Invalid expense category") {
+      return sendError(res, {
+        statusCode: 404,
+        message: err.message,
+      });
+    }
+
+    if (err.message === "Budget already exists for this category and month") {
+      return sendError(res, {
+        statusCode: 409,
+        message: err.message,
+      });
+    }
+
     if (err.code === "ER_DUP_ENTRY") {
       return sendError(res, {
         statusCode: 409,
@@ -276,62 +226,8 @@ router.put("/update", authenticationToken, async (req, res) => {
   }
 
   try {
-    // Verify budget exists and belongs to logged-in user
-    const [existing] = await db.query(
-      `SELECT budget_id FROM budgets WHERE budget_id = ? AND user_id = ?`,
-      [budgetId, userId],
-    );
-
-    if (existing.length === 0) {
-      return sendError(res, {
-        statusCode: 404,
-        message: "Budget not found",
-      });
-    }
-
-    // If category is being updated → verify it exists
-    if (categoryId !== undefined) {
-      const [category] = await db.query(
-        `SELECT category_id FROM categories WHERE category_id = ? AND (user_id = ? OR user_id IS NULL)`,
-        [categoryId, userId],
-      );
-
-      if (category.length === 0) {
-        return sendError(res, {
-          statusCode: 404,
-          message: "Category not found",
-        });
-      }
-    }
-
-    // 🔄 Dynamic SQL construction for partial update
-    let updateFields = [];
-    let values = [];
-
-    if (categoryId !== undefined) {
-      updateFields.push("category_id = ?");
-      values.push(categoryId);
-    }
-
-    if (month !== undefined) {
-      updateFields.push("month = ?");
-      values.push(month);
-    }
-
-    if (amount !== undefined) {
-      updateFields.push("amount = ?");
-      values.push(amount);
-    }
-
-    values.push(budgetId, userId);
-
-    const query = `
-      UPDATE budgets
-      SET ${updateFields.join(", ")}
-      WHERE budget_id = ? AND user_id = ?
-    `;
-
-    await db.query(query, values);
+    // 2️⃣ Update via service
+    await updateBudget(userId, budgetId, { categoryId, month, amount });
 
     return sendSuccess(res, {
       statusCode: 200,
@@ -362,36 +258,21 @@ router.delete("/delete", authenticationToken, async (req, res) => {
   const userId = req.userId;
 
   try {
-    // Ensure budget belongs to logged-in user
-    const [existing] = await db.query(
-      `
-      SELECT budget_id FROM budgets
-      WHERE budget_id = ? AND user_id = ?
-      `,
-      [budgetId, userId],
-    );
-
-    if (existing.length === 0) {
-      return sendError(res, {
-        statusCode: 404,
-        message: "Budget not found",
-      });
-    }
-
-    // Delete record
-    await db.query(
-      `
-      DELETE FROM budgets
-      WHERE budget_id = ? AND user_id = ?
-      `,
-      [budgetId, userId],
-    );
+    // 2️⃣ Delete via service
+    await deleteBudget(userId, budgetId);
 
     return sendSuccess(res, {
       statusCode: 200,
       message: "Budget deleted successfully",
     });
   } catch (err) {
+    if (err.message === "Budget not found") {
+      return sendError(res, {
+        statusCode: 404,
+        message: err.message,
+      });
+    }
+
     return sendError(res, {
       statusCode: 500,
       message: err.message,
@@ -451,129 +332,10 @@ router.get("/analytics", authenticationToken, async (req, res) => {
   }
 
   try {
-    /**
-     * ------------------------------------------------------
-     * 📊 SQL Query
-     * ------------------------------------------------------
-     * Tables:
-     * - budgets (b)       → Monthly allocated budgets per category
-     * - categories (c)    → Category details
-     * - transactions (t)  → User spending transactions
-     *
-     * Logic:
-     * - Join budgets with categories
-     * - LEFT JOIN transactions to calculate spending
-     * - Filter transactions by same user and same month
-     * - Aggregate total spent using SUM()
-     * - Use COALESCE to avoid NULL when no transactions exist
-     */
-    const [rows] = await db.query(
-      `
-      SELECT
-        b.budget_id,
-        b.month,
-        CAST(b.amount AS DOUBLE) AS budgetAmount,
-        c.category_id,
-        c.name AS categoryName,
-        CAST(COALESCE(SUM(t.amount), 0) AS DOUBLE) AS spentAmount
-      FROM budgets b
-      JOIN categories c
-        ON b.category_id = c.category_id
-      LEFT JOIN transactions t
-        ON t.category_id = b.category_id
-        AND t.user_id = b.user_id
-        AND DATE_FORMAT(t.trn_date, '%Y-%m') = b.month
-      WHERE b.user_id = ?
-        AND b.month = ?
-      GROUP BY b.budget_id, c.category_id, c.name, b.amount, b.month
-      `,
-      [userId, month],
-    );
-
-    // 📈 Initialize Summary Counters
-    let totalBudgetAllocated = 0;
-    let totalSpent = 0;
-    let overBudgetCategoriesCount = 0;
-
-    // 🔄 Process Each Category Row
-    const categories = rows.map((row) => {
-      const budgetAmount = Number(row.budgetAmount);
-      const spentAmount = Number(row.spentAmount);
-
-      // Remaining amount calculation
-      const remainingAmount = budgetAmount - spentAmount;
-
-      // Percentage used (avoid division by zero)
-      const percentageUsed =
-        budgetAmount > 0
-          ? Number(((spentAmount / budgetAmount) * 100).toFixed(2))
-          : 0;
-
-      // Over-budget check
-      const isOverBudget = spentAmount > budgetAmount;
-
-      // Calculate exceeded amount (if any)
-      const overAmount = isOverBudget
-        ? Number((spentAmount - budgetAmount).toFixed(2))
-        : 0;
-
-      /**
-       * Budget Status Rules:
-       * - < 70%       → Safe
-       * - 70% - 99%   → Warning
-       * - >= 100%     → Exceeded
-       */
-      let status = "Safe";
-
-      if (percentageUsed >= 100) {
-        status = "Exceeded";
-      } else if (percentageUsed >= 70) {
-        status = "Warning";
-      }
-
-      // Count categories exceeding budget
-      if (isOverBudget) overBudgetCategoriesCount++;
-
-      // Accumulate totals
-      totalBudgetAllocated += budgetAmount;
-      totalSpent += spentAmount;
-
-      return {
-        budgetId: row.budget_id,
-        categoryId: row.category_id,
-        categoryName: row.categoryName,
-        budgetAmount,
-        spentAmount,
-        remainingAmount: Number(remainingAmount.toFixed(2)),
-        percentageUsed,
-        isOverBudget,
-        overAmount,
-        status,
-      };
-    });
-
-    // 📊 Calculate Overall Summary
-    const totalRemaining = totalBudgetAllocated - totalSpent;
-
-    const overallPercentageUsed =
-      totalBudgetAllocated > 0
-        ? Number(((totalSpent / totalBudgetAllocated) * 100).toFixed(2))
-        : 0;
-
-    // ✅ Success Response
+    const data = await getBudgetAnalytics(userId, month);
     return sendSuccess(res, {
       statusCode: 200,
-      data: {
-        month,
-        summary: {
-          totalBudgetAllocated: Number(totalBudgetAllocated.toFixed(2)),
-          totalSpent: Number(totalSpent.toFixed(2)),
-          totalRemaining: Number(totalRemaining.toFixed(2)),
-          overallPercentageUsed,
-          overBudgetCategoriesCount,
-        },
-        categories,
-      },
+      data,
     });
   } catch (err) {
     // ❌ Error Handling

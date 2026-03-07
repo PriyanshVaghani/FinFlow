@@ -13,6 +13,16 @@ const db = require("../config/db");
 const registerUser = async ({ name, email, password, mobileNo }) => {
   try {
     // 1️⃣ Check if user already exists (email or mobile)
+    /**
+     * 📊 SQL Query Explanation
+     *
+     * Tables Used:
+     * - users → User account information
+     *
+     * WHERE Clause:
+     * - Checks both email and mobile_no to prevent duplicate accounts
+     * - OR condition allows matching on either field
+     */
     const [existing] = await db.query(
       "SELECT user_id FROM users WHERE email = ? OR mobile_no = ?",
       [email, mobileNo],
@@ -26,6 +36,17 @@ const registerUser = async ({ name, email, password, mobileNo }) => {
     const hashedPassword = await bcrypt.hash(password, 10);
 
     // 3️⃣ Insert new user into database
+    /**
+     * 📊 SQL Query Explanation
+     *
+     * Tables Used:
+     * - users → User account information
+     *
+     * INSERT Operation:
+     * - Creates new user record with provided details
+     * - password_hash stores bcrypt-hashed password
+     * - mobile_no stored as provided
+     */
     const [result] = await db.query(
       `
       INSERT INTO users (name, email, password_hash, mobile_no)
@@ -55,6 +76,19 @@ const registerUser = async ({ name, email, password, mobileNo }) => {
 const loginUser = async (email, password) => {
   try {
     // 1️⃣ Fetch user by email
+    /**
+     * 📊 SQL Query Explanation
+     *
+     * Tables Used:
+     * - users → User account information
+     *
+     * SELECT *:
+     * - Retrieves all user fields for authentication
+     * - Includes password_hash for verification
+     *
+     * WHERE Clause:
+     * - Matches exact email for login
+     */
     const [existing] = await db.query("SELECT * FROM users WHERE email = ?", [
       email,
     ]);

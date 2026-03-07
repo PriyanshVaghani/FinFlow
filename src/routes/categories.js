@@ -3,9 +3,14 @@
 // =======================================
 const express = require("express");
 const router = express.Router();
-const db = require("../config/db"); // ✅ MySQL DB connection (promise-based)
 const { sendSuccess, sendError } = require("../utils/responseHelper"); // 📤 Standard API response helpers
 const { authenticationToken } = require("../middleware/auth_middleware"); // 🔐 JWT authentication middleware
+const {
+  getCategories,
+  addCategory,
+  updateCategory,
+  deleteCategory,
+} = require("../services/categories.service"); // 📂 Category services
 
 /**
  * ======================================================
@@ -34,27 +39,8 @@ router.get("/", authenticationToken, async (req, res) => {
   }
 
   try {
-    // 2️⃣ Fetch categories
-    // - Includes user's own categories
-    // - Includes predefined system categories (user_id IS NULL)
-    const [rows] = await db.query(
-      `
-      SELECT
-        category_id,
-        name,
-        JSON_EXTRACT(
-          CASE
-            WHEN is_active = 1 THEN 'true'
-            ELSE 'false'
-          END,
-          '$'
-        ) AS isActive
-      FROM categories
-      WHERE type = ?
-        AND (user_id = ? OR user_id IS NULL)
-      `,
-      [type, userId]
-    );
+    // 2️⃣ Fetch categories via service
+    const rows = await getCategories(type, userId);
 
     // 3️⃣ Send success response
     return sendSuccess(res, {
@@ -95,51 +81,32 @@ router.post("/add", authenticationToken, async (req, res) => {
     });
   }
 
-  const ALLOWED_TYPES = ["Income", "Expense"];
-
-  if (!ALLOWED_TYPES.includes(type)) {
-    return sendError(res, {
-      statusCode: 422,
-      message: "Invalid category type",
-    });
-  }
-
   try {
-    // Prevent user from adding default category name
-    const [existing] = await db.query(
-      `
-        SELECT category_id FROM categories
-        WHERE name = ? AND type = ? AND user_id IS NULL AND is_active = 1
-      `,
-      [name.trim(), type]
-    );
-
-    if (existing.length > 0) {
-      return sendError(res, {
-        statusCode: 409,
-        message: "This category already exists as a default category",
-      });
-    }
-
-    // 2️⃣ Insert new category for the logged-in user
-    const [result] = await db.query(
-      `
-      INSERT INTO categories (name, type, user_id)
-      VALUES (?, ?, ?)
-      `,
-      [name.trim(), type, userId]
-    );
+    // 2️⃣ Add category via service
+    const data = await addCategory(name, type, userId);
 
     // 3️⃣ Send success response
     return sendSuccess(res, {
       statusCode: 201, // Created
       message: "Category created successfully",
-      data: {
-        categoryId: result.insertId,
-      },
+      data,
     });
   } catch (err) {
-    // ✅ Check for MySQL duplicate entry error
+    // ✅ Handle specific error cases
+    if (err.message === "Invalid category type") {
+      return sendError(res, {
+        statusCode: 422,
+        message: err.message,
+      });
+    }
+
+    if (err.message === "This category already exists as a default category") {
+      return sendError(res, {
+        statusCode: 409,
+        message: err.message,
+      });
+    }
+
     if (err.code === "ER_DUP_ENTRY") {
       return sendError(res, {
         statusCode: 409, // Conflict
@@ -177,33 +144,23 @@ router.put("/update", authenticationToken, async (req, res) => {
   }
 
   try {
-    // 2️⃣ Update category (only user's active categories)
-    const [result] = await db.query(
-      `
-      UPDATE categories
-      SET name = ?
-      WHERE category_id = ?
-        AND user_id = ?
-        AND is_active = 1
-      `,
-      [name.trim(), categoryId, userId]
-    );
+    // 2️⃣ Update category via service
+    await updateCategory(categoryId, name, userId);
 
-    // 3️⃣ Check if update was successful
-    if (result.affectedRows === 0) {
-      return sendError(res, {
-        statusCode: 404, // Not Found
-        message: "Category not found or unauthorized",
-      });
-    }
-
-    // 4️⃣ Send success response
+    // 3️⃣ Send success response
     return sendSuccess(res, {
       statusCode: 200,
       message: "Category updated successfully",
     });
   } catch (err) {
-    // ❌ Handle unexpected server errors
+    // ❌ Handle specific error cases
+    if (err.message === "Category not found or unauthorized") {
+      return sendError(res, {
+        statusCode: 404, // Not Found
+        message: err.message,
+      });
+    }
+
     return sendError(res, {
       statusCode: 500,
       message: err.message,
@@ -234,32 +191,23 @@ router.delete("/delete", authenticationToken, async (req, res) => {
   }
 
   try {
-    // 2️⃣ Soft delete category (mark inactive)
-    const [result] = await db.query(
-      `
-      UPDATE categories
-      SET is_active = 0
-      WHERE category_id = ?
-        AND user_id = ?
-      `,
-      [categoryId, userId]
-    );
+    // 2️⃣ Delete category via service
+    await deleteCategory(categoryId, userId);
 
-    // 3️⃣ Check if delete was successful
-    if (result.affectedRows === 0) {
-      return sendError(res, {
-        statusCode: 404,
-        message: "Category not found or unauthorized",
-      });
-    }
-
-    // 4️⃣ Send success response
+    // 3️⃣ Send success response
     return sendSuccess(res, {
       statusCode: 200,
       message: "Category deleted successfully",
     });
   } catch (err) {
-    // ❌ Handle unexpected server errors
+    // ❌ Handle specific error cases
+    if (err.message === "Category not found or unauthorized") {
+      return sendError(res, {
+        statusCode: 404,
+        message: err.message,
+      });
+    }
+
     return sendError(res, {
       statusCode: 500,
       message: err.message,

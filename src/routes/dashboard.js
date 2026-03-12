@@ -175,7 +175,7 @@ router.get("/recent-transactions", authenticationToken, async (req, res) => {
      * - offset is fixed to 0 (always latest entries)
      * - baseUrl is passed so service can generate absolute file URLs
      */
-    const transactions = await fetchTransactions(db, userId, {
+    const transactions = await fetchTransactions(userId, {
       limit: take,
       offset: 0,
       baseUrl,

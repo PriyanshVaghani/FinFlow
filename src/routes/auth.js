@@ -4,7 +4,6 @@
 const express = require("express");
 const router = express.Router();
 const jwt = require("jsonwebtoken"); // 🔑 For generating JWT tokens
-const db = require("../config/db"); // 🗄️ MySQL DB connection
 const { sendSuccess, sendError } = require("../utils/responseHelper"); // 📤 Standard API responses
 const { registerUser, loginUser } = require("../services/auth.service"); // 👤 User auth services
 

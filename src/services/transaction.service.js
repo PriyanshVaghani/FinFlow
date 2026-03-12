@@ -2,11 +2,12 @@
 // 📦 Import Required Modules
 // =======================================
 // file system and crypto needed for attachment handling
+const db = require("../config/db");
 const fs = require("fs");
 const crypto = require("crypto");
 
 // 🔎 Builds dynamic SQL WHERE conditions for transaction filtering
-const { buildTransactionFilters } = require("./transaction.filters");
+const { buildTransactionFilters } = require("../utils/transaction.filters");
 
 /**
  * ======================================================
@@ -27,7 +28,6 @@ const { buildTransactionFilters } = require("./transaction.filters");
  * - Generates absolute attachment URLs using provided baseUrl
  * - Returns total count for pagination
  *
- * @param {Object} db - Database connection instance
  * @param {number|string} userId - Logged-in user ID
  * @param {Object} options - Configuration options
  * @param {number} options.limit - Number of records to fetch
@@ -49,7 +49,6 @@ const { buildTransactionFilters } = require("./transaction.filters");
  * }
  */
 const fetchTransactions = async (
-  db,
   userId,
   {
     limit,
@@ -264,7 +263,6 @@ const getFileHash = (filePath) => {
  * attachment detection and file cleanup on error.
  */
 const addTransaction = async (
-  db,
   userId,
   { categoryId, amount, note, trnDate },
   files = [],
@@ -393,7 +391,6 @@ const addTransaction = async (
  * optional attachment removals/additions.
  */
 const updateTransaction = async (
-  db,
   userId,
   trnId,
   { categoryId, amount, note, trnDate, deleteAttachmentIds = [] },
@@ -624,7 +621,7 @@ const updateTransaction = async (
  * Deletes a transaction and its attachments, and cleans
  * up physical files.
  */
-const deleteTransaction = async (db, userId, trnId) => {
+const deleteTransaction = async (userId, trnId) => {
   const conn = await db.getConnection();
   try {
     await conn.beginTransaction();
@@ -697,7 +694,7 @@ const deleteTransaction = async (db, userId, trnId) => {
  * 📄 GET RECURRING TRANSACTIONS SERVICE
  * ======================================================
  */
-const getRecurringTransactions = async (db, userId) => {
+const getRecurringTransactions = async (userId) => {
   /**
    * 📊 SQL Query Explanation
    *
@@ -747,7 +744,6 @@ const getRecurringTransactions = async (db, userId) => {
  * ======================================================
  */
 const addRecurringTransaction = async (
-  db,
   userId,
   { categoryId, amount, note, frequency, startDate, endDate },
 ) => {
@@ -796,7 +792,7 @@ const addRecurringTransaction = async (
  * 🔁 UPDATE RECURRING TRANSACTION SERVICE
  * ======================================================
  */
-const updateRecurringTransaction = async (db, userId, recurringId, updates) => {
+const updateRecurringTransaction = async (userId, recurringId, updates) => {
   const fields = [];
   const values = [];
 

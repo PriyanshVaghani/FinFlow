@@ -243,7 +243,7 @@ router.get("/", authenticationToken, async (req, res) => {
   try {
     // Delegate filtering, sorting, pagination to service layer.
     // Keeps controller thin and maintains separation of concerns.
-    const result = await fetchTransactions(db, userId, {
+    const result = await fetchTransactions(userId, {
       limit: take,
       offset: skip,
       baseUrl,
@@ -346,7 +346,6 @@ router.post(
 
     try {
       await addTransaction(
-        db,
         userId,
         { categoryId, amount, note, trnDate },
         req.files,
@@ -474,7 +473,6 @@ router.put(
 
     try {
       await updateTransaction(
-        db,
         userId,
         trnId,
         { categoryId, amount, note, trnDate, deleteAttachmentIds },
@@ -514,7 +512,7 @@ router.delete("/delete", authenticationToken, async (req, res) => {
   const { trnId } = req.query;
 
   try {
-    await deleteTransaction(db, userId, trnId);
+    await deleteTransaction(userId, trnId);
     return sendSuccess(res, {
       statusCode: 200,
       message: "Transaction deleted successfully.",
@@ -545,7 +543,7 @@ router.get("/recurring/", authenticationToken, async (req, res) => {
   const userId = req.userId;
 
   try {
-    const rows = await getRecurringTransactions(db, userId);
+    const rows = await getRecurringTransactions(userId);
     return sendSuccess(res, {
       statusCode: 200,
       data: rows,
@@ -588,7 +586,7 @@ router.post("/recurring/add", authenticationToken, async (req, res) => {
   }
 
   try {
-    await addRecurringTransaction(db, userId, {
+    await addRecurringTransaction(userId, {
       categoryId,
       amount,
       note,
@@ -642,7 +640,7 @@ router.put("/recurring/update", authenticationToken, async (req, res) => {
   }
 
   try {
-    await updateRecurringTransaction(db, userId, recurringId, {
+    await updateRecurringTransaction(userId, recurringId, {
       categoryId,
       amount,
       note,

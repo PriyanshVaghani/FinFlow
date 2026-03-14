@@ -3,7 +3,7 @@
 // =======================================
 const express = require("express");
 const router = express.Router();
-const { sendSuccess, sendError } = require("../utils/responseHelper"); // 📤 Standard API response helpers
+const { sendSuccess } = require("../utils/responseHelper"); // 📤 Standard API response helpers
 const { authenticationToken } = require("../middleware/auth_middleware"); // 🔐 JWT authentication middleware
 const {
   getMonthlySummary,
@@ -26,7 +26,7 @@ const { fetchTransactions } = require("../services/transaction.service");
  * - Return net balance (income - expense)
  * - Default to current month if not provided
  */
-router.get("/summary", authenticationToken, async (req, res) => {
+router.get("/summary", authenticationToken, async (req, res, next) => {
   try {
     // 👤 Logged-in user ID
     const userId = req.userId;
@@ -35,9 +35,9 @@ router.get("/summary", authenticationToken, async (req, res) => {
     const { month, year } = req.query;
     const data = await getMonthlySummary(userId, month, year);
     return sendSuccess(res, { statusCode: 200, data });
-  } catch (error) {
+  } catch (err) {
     // ❌ Handle server errors
-    return sendError(res, { statusCode: 500 });
+    next(err);
   }
 });
 
@@ -54,15 +54,15 @@ router.get("/summary", authenticationToken, async (req, res) => {
  * - Return total spent per category
  * - Default to current month if not provided
  */
-router.get("/category-summary", authenticationToken, async (req, res) => {
+router.get("/category-summary", authenticationToken, async (req, res, next) => {
   try {
     const userId = req.userId;
     const { month, year } = req.query;
     const data = await getCategorySummary(userId, month, year);
     return sendSuccess(res, { statusCode: 200, data });
-  } catch (error) {
+  } catch (err) {
     // ❌ Handle server errors
-    return sendError(res, { statusCode: 500 });
+    next(err);
   }
 });
 
@@ -79,7 +79,7 @@ router.get("/category-summary", authenticationToken, async (req, res) => {
  * - Return full 12-month structure (even if no data)
  * - Default to current year if not provided
  */
-router.get("/monthly-trend", authenticationToken, async (req, res) => {
+router.get("/monthly-trend", authenticationToken, async (req, res, next) => {
   try {
     // 👤 Logged-in user ID
     const userId = req.userId;
@@ -88,9 +88,9 @@ router.get("/monthly-trend", authenticationToken, async (req, res) => {
     const { year } = req.query;
     const data = await getMonthlyTrend(userId, year);
     return sendSuccess(res, { statusCode: 200, data });
-  } catch (error) {
+  } catch (err) {
     // ❌ Handle server errors
-    return sendError(res, { statusCode: 500 });
+    next(err);
   }
 });
 
@@ -116,7 +116,7 @@ router.get("/monthly-trend", authenticationToken, async (req, res) => {
  * - Calculate percentage change
  * - Safely handle divide-by-zero cases
  */
-router.get("/month-comparison", authenticationToken, async (req, res) => {
+router.get("/month-comparison", authenticationToken, async (req, res, next) => {
   try {
     // 👤 Logged-in user ID
     const userId = req.userId;
@@ -125,9 +125,9 @@ router.get("/month-comparison", authenticationToken, async (req, res) => {
     const { month, year } = req.query;
     const data = await getMonthComparison(userId, month, year);
     return sendSuccess(res, { statusCode: 200, data });
-  } catch (error) {
+  } catch (err) {
     // ❌ Handle server errors
-    return sendError(res, { statusCode: 500 });
+    next(err);
   }
 });
 
@@ -154,48 +154,48 @@ router.get("/month-comparison", authenticationToken, async (req, res) => {
  * - baseUrl is passed to service layer for attachment URL construction
  * - Keeps service reusable while allowing dynamic URL generation
  */
-router.get("/recent-transactions", authenticationToken, async (req, res) => {
-  // 🔐 Extract user ID from JWT middleware
-  const userId = req.userId;
+router.get(
+  "/recent-transactions",
+  authenticationToken,
+  async (req, res, next) => {
+    try {
+      // 🔐 Extract user ID from JWT middleware
+      const userId = req.userId;
 
-  // 📌 Number of recent transactions to fetch (default: 5)
-  // parseInt ensures numeric value from query string
-  const take = parseInt(req.query.take) || 5;
+      // 📌 Number of recent transactions to fetch (default: 5)
+      // parseInt ensures numeric value from query string
+      const take = Number.isInteger(Number(req.query.take))
+        ? Number(req.query.take)
+        : 5;
 
-  // 🌐 Construct dynamic base URL from current request
-  // Example:
-  // http://localhost:5000
-  const baseUrl = `${req.protocol}://${req.get("host")}`;
+      // 🌐 Construct dynamic base URL from current request
+      // Example:
+      // http://localhost:5000
+      const baseUrl = `${req.protocol}://${req.get("host")}`;
 
-  try {
-    /**
-     * 📦 Fetch latest transactions
-     *
-     * - Delegates DB + attachment formatting logic to service layer
-     * - offset is fixed to 0 (always latest entries)
-     * - baseUrl is passed so service can generate absolute file URLs
-     */
-    const transactions = await fetchTransactions(userId, {
-      limit: take,
-      offset: 0,
-      baseUrl,
-    });
+      /**
+       * 📦 Fetch latest transactions
+       *
+       * - Delegates DB + attachment formatting logic to service layer
+       * - offset is fixed to 0 (always latest entries)
+       * - baseUrl is passed so service can generate absolute file URLs
+       */
+      const transactions = await fetchTransactions(userId, {
+        limit: take,
+        offset: 0,
+        baseUrl,
+      });
 
-    // ✅ Send standardized success response
-    return sendSuccess(res, {
-      data: transactions,
-    });
-  } catch (err) {
-    /**
-     * ❌ Handle unexpected errors
-     * Returns 500 Internal Server Error
-     */
-    return sendError(res, {
-      statusCode: 500,
-      message: err.message,
-    });
-  }
-});
+      // ✅ Send standardized success response
+      return sendSuccess(res, {
+        data: transactions,
+      });
+    } catch (err) {
+      // ❌ Handle server errors
+      next(err);
+    }
+  },
+);
 
 // =======================================
 // 📤 Export Router

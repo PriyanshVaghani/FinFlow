@@ -3,7 +3,7 @@
 // =======================================
 const express = require("express");
 const router = express.Router();
-const { sendSuccess, sendError } = require("../utils/responseHelper"); // 📤 Standard API response helpers
+const { sendSuccess } = require("../utils/responseHelper"); // 📤 Standard API response helpers
 const { authenticationToken } = require("../middleware/auth_middleware"); // 🔐 JWT authentication middleware
 const {
   getCategories,
@@ -25,20 +25,20 @@ const {
  * - Returns user-created categories
  * - Also returns default system categories (user_id IS NULL)
  */
-router.get("/", authenticationToken, async (req, res) => {
-  // 📥 Extract query params & user ID
-  const { type } = req.query;
-  const userId = req.userId;
-
-  // 1️⃣ Validate required query params
-  if (!type) {
-    return sendError(res, {
-      statusCode: 422, // Unprocessable Entity
-      message: "Category type is required",
-    });
-  }
-
+router.get("/", authenticationToken, async (req, res, next) => {
   try {
+    // 📥 Extract query params & user ID
+    const { type } = req.query;
+    const userId = req.userId;
+
+    // 1️⃣ Validate required query params
+    if (!type) {
+      return next({
+        statusCode: 422, // Unprocessable Entity
+        message: "Category type is required",
+      });
+    }
+
     // 2️⃣ Fetch categories via service
     const rows = await getCategories(type, userId);
 
@@ -49,10 +49,7 @@ router.get("/", authenticationToken, async (req, res) => {
     });
   } catch (err) {
     // ❌ Handle unexpected server errors
-    return sendError(res, {
-      statusCode: 500, // Internal Server Error
-      message: err.message,
-    });
+    next(err);
   }
 });
 
@@ -68,20 +65,20 @@ router.get("/", authenticationToken, async (req, res) => {
  * - Only Income / Expense types allowed
  * - Prevents duplication of default categories
  */
-router.post("/add", authenticationToken, async (req, res) => {
-  // 📥 Extract request body
-  const { name, type } = req.body;
-  const userId = req.userId;
-
-  // 1️⃣ Validate required fields
-  if (!name || !type) {
-    return sendError(res, {
-      statusCode: 422, // Unprocessable Entity
-      message: "Category name and type are required",
-    });
-  }
-
+router.post("/add", authenticationToken, async (req, res, next) => {
   try {
+    // 📥 Extract request body
+    const { name, type } = req.body;
+    const userId = req.userId;
+
+    // 1️⃣ Validate required fields
+    if (!name || !type) {
+      return next({
+        statusCode: 422, // Unprocessable Entity
+        message: "Category name and type are required",
+      });
+    }
+
     // 2️⃣ Add category via service
     const data = await addCategory(name, type, userId);
 
@@ -94,31 +91,28 @@ router.post("/add", authenticationToken, async (req, res) => {
   } catch (err) {
     // ✅ Handle specific error cases
     if (err.message === "Invalid category type") {
-      return sendError(res, {
+      return next({
         statusCode: 422,
         message: err.message,
       });
     }
 
     if (err.message === "This category already exists as a default category") {
-      return sendError(res, {
+      return next({
         statusCode: 409,
         message: err.message,
       });
     }
 
     if (err.code === "ER_DUP_ENTRY") {
-      return sendError(res, {
+      return next({
         statusCode: 409, // Conflict
         message: "You already have a category with this name and type",
       });
     }
 
     // ❌ Handle unexpected server errors
-    return sendError(res, {
-      statusCode: 500,
-      message: err.message,
-    });
+    next(err);
   }
 });
 
@@ -130,20 +124,20 @@ router.post("/add", authenticationToken, async (req, res) => {
  * @desc    Update category name
  * @access  Private
  */
-router.put("/update", authenticationToken, async (req, res) => {
-  // 📥 Extract request body
-  const { categoryId, name } = req.body;
-  const userId = req.userId;
-
-  // 1️⃣ Validate required fields
-  if (!categoryId || !name) {
-    return sendError(res, {
-      statusCode: 422,
-      message: "Category ID and name are required",
-    });
-  }
-
+router.put("/update", authenticationToken, async (req, res, next) => {
   try {
+    // 📥 Extract request body
+    const { categoryId, name } = req.body;
+    const userId = req.userId;
+
+    // 1️⃣ Validate required fields
+    if (!categoryId || !name) {
+      return next({
+        statusCode: 422,
+        message: "Category ID and name are required",
+      });
+    }
+
     // 2️⃣ Update category via service
     await updateCategory(categoryId, name, userId);
 
@@ -155,16 +149,13 @@ router.put("/update", authenticationToken, async (req, res) => {
   } catch (err) {
     // ❌ Handle specific error cases
     if (err.message === "Category not found or unauthorized") {
-      return sendError(res, {
+      return next({
         statusCode: 404, // Not Found
         message: err.message,
       });
     }
 
-    return sendError(res, {
-      statusCode: 500,
-      message: err.message,
-    });
+    next(err);
   }
 });
 
@@ -177,20 +168,20 @@ router.put("/update", authenticationToken, async (req, res) => {
  * @access  Private
  * @query   categoryId
  */
-router.delete("/delete", authenticationToken, async (req, res) => {
-  // 📥 Extract query params
-  const { categoryId } = req.query;
-  const userId = req.userId;
-
-  // 1️⃣ Validate required params
-  if (!categoryId) {
-    return sendError(res, {
-      statusCode: 422,
-      message: "Category ID is required",
-    });
-  }
-
+router.delete("/delete", authenticationToken, async (req, res, next) => {
   try {
+    // 📥 Extract query params
+    const { categoryId } = req.query;
+    const userId = req.userId;
+
+    // 1️⃣ Validate required params
+    if (!categoryId) {
+      return next({
+        statusCode: 422,
+        message: "Category ID is required",
+      });
+    }
+
     // 2️⃣ Delete category via service
     await deleteCategory(categoryId, userId);
 
@@ -202,16 +193,13 @@ router.delete("/delete", authenticationToken, async (req, res) => {
   } catch (err) {
     // ❌ Handle specific error cases
     if (err.message === "Category not found or unauthorized") {
-      return sendError(res, {
+      return next({
         statusCode: 404,
         message: err.message,
       });
     }
 
-    return sendError(res, {
-      statusCode: 500,
-      message: err.message,
-    });
+    next(err);
   }
 });
 

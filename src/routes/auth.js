@@ -4,7 +4,7 @@
 const express = require("express");
 const router = express.Router();
 const jwt = require("jsonwebtoken"); // 🔑 For generating JWT tokens
-const { sendSuccess, sendError } = require("../utils/responseHelper"); // 📤 Standard API responses
+const { sendSuccess } = require("../utils/responseHelper"); // 📤 Standard API responses
 const { registerUser, loginUser } = require("../services/auth.service"); // 👤 User auth services
 
 /**
@@ -19,20 +19,21 @@ const { registerUser, loginUser } = require("../services/auth.service"); // 👤
  * 1. Validate input fields
  * 2. Register user via service (checks existence, hashes password, inserts)
  * 3. Send success response
+ * 4. Pass errors to global error handler
  */
-router.post("/register", async (req, res) => {
-  // 📥 Extract request body
-  const { name, email, password, mobileNo } = req.body;
-
-  // 1️⃣ Validate required fields
-  if (!name || !email || !password || !mobileNo) {
-    return sendError(res, {
-      statusCode: 422, // Unprocessable Entity
-      message: "All fields are required",
-    });
-  }
-
+router.post("/register", async (req, res, next) => {
   try {
+    // 📥 Extract request body
+    const { name, email, password, mobileNo } = req.body;
+
+    // 1️⃣ Validate required fields
+    if (!name || !email || !password || !mobileNo) {
+      return next({
+        statusCode: 422, // Unprocessable Entity
+        message: "All fields are required",
+      });
+    }
+
     // 2️⃣ Register the user via service
     const userData = await registerUser({ name, email, password, mobileNo });
 
@@ -43,17 +44,16 @@ router.post("/register", async (req, res) => {
       data: userData,
     });
   } catch (err) {
-    // ❌ Handle unexpected errors
+    // If user already exists
     if (err.message === "User already exists") {
-      return sendError(res, {
+      return next({
         statusCode: 409, // Conflict
         message: err.message,
       });
     }
-    return sendError(res, {
-      statusCode: 500,
-      message: err.message,
-    });
+
+    // Pass unexpected errors to global handler
+    next(err);
   }
 });
 
@@ -71,19 +71,19 @@ router.post("/register", async (req, res) => {
  * 3. Generate JWT token
  * 4. Send success response
  */
-router.post("/login", async (req, res) => {
-  // 📥 Extract credentials
-  const { email, password } = req.body;
-
-  // 1️⃣ Validate request body
-  if (!email || !password) {
-    return sendError(res, {
-      statusCode: 422,
-      message: "All fields are required",
-    });
-  }
-
+router.post("/login", async (req, res, next) => {
   try {
+    // 📥 Extract credentials
+    const { email, password } = req.body;
+
+    // 1️⃣ Validate request body
+    if (!email || !password) {
+      return next({
+        statusCode: 422,
+        message: "All fields are required",
+      });
+    }
+
     // 2️⃣ Authenticate user via service
     const user = await loginUser(email, password);
 
@@ -109,15 +109,14 @@ router.post("/login", async (req, res) => {
       err.message === "User not found" ||
       err.message === "Invalid credentials"
     ) {
-      return sendError(res, {
+      return next({
         statusCode: 401,
         message: err.message,
       });
     }
-    return sendError(res, {
-      statusCode: 500,
-      message: err.message,
-    });
+
+    // Pass unexpected errors to global handler
+    next(err);
   }
 });
 

@@ -4,8 +4,6 @@
 const express = require("express");
 const router = express.Router(); // 📌 Router instance helps keep routes modular instead of defining them in the main app file
 
-const { sendError } = require("../utils/responseHelper"); // 📤 Standard API response helpers
-
 const { authenticationToken } = require("../middleware/auth_middleware"); // 🔐 JWT authentication middleware
 
 // 🧠 Service layer that handles business logic for generating report data
@@ -29,12 +27,12 @@ const { exportTransactions } = require("../services/report.service");
  * 3️⃣ Service fetches transactions and converts them to CSV
  * 4️⃣ Controller sends CSV file as downloadable attachment
  */
-router.get("/export", authenticationToken, async (req, res) => {
-  // 🔑 userId comes from authentication middleware after decoding JWT
-  // Logical reason: ensures report contains only that user's data
-  const userId = req.userId;
-
+router.get("/export", authenticationToken, async (req, res, next) => {
   try {
+    // 🔑 userId comes from authentication middleware after decoding JWT
+    // Logical reason: ensures report contains only that user's data
+    const userId = req.userId;
+
     const csv = await exportTransactions(userId, {
       startDate: req.query.startDate,
       endDate: req.query.endDate,
@@ -63,10 +61,7 @@ router.get("/export", authenticationToken, async (req, res) => {
     res.send(csv);
   } catch (err) {
     // Handles unexpected errors during report generation
-    return sendError(res, {
-      statusCode: 500,
-      message: err.message,
-    });
+    return next(err);
   }
 });
 

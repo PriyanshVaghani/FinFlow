@@ -63,184 +63,182 @@ const { sendSuccess, sendError } = require("../utils/responseHelper"); // 📦 U
  * - Delegate filtering + sorting to service layer
  * - Return pagination metadata (totalCount, hasMore)
  */
-router.get("/", authenticationToken, async (req, res) => {
-
-  // 🔐 Extract authenticated user ID from middleware.
-  // This ensures each user can only access their own transactions.
-  const userId = req.userId;
-
-  // 📄 Pagination Parameters
-  // Math.max prevents negative values (e.g., skip=-10).
-  // parseInt converts query string to number safely.
-  const skip = Math.max(0, parseInt(req.query.skip) || 0);
-  const take = Math.max(0, parseInt(req.query.take) || 10);
-
-  // 📅 Date Range Filters
-  const startDate = req.query.startDate;
-  const endDate = req.query.endDate;
-
-  // Validate ISO date format to prevent invalid date parsing in DB queries.
-  // This avoids runtime SQL errors and inconsistent filtering.
-  if (startDate && !isValidISODate(startDate)) {
-    return sendError(res, {
-      statusCode: 400,
-      message: "Invalid startDate format. Use YYYY-MM-DD",
-    });
-  }
-
-  if (endDate && !isValidISODate(endDate)) {
-    return sendError(res, {
-      statusCode: 400,
-      message: "Invalid endDate format. Use YYYY-MM-DD",
-    });
-  }
-
-  // Logical validation: startDate must not exceed endDate.
-  // Prevents meaningless queries like future-to-past range.
-  if (startDate && endDate && new Date(startDate) > new Date(endDate)) {
-    return sendError(res, {
-      statusCode: 400,
-      message: "startDate cannot be greater than endDate",
-    });
-  }
-
-  // 📂 Category Filter (supports single or multiple IDs)
-  let categoryIds = req.query.categoryIds;
-
-  if (!categoryIds) {
-    categoryIds = [];
-  } else if (!Array.isArray(categoryIds)) {
-    categoryIds = [categoryIds];
-  }
-
-  // Keep only numeric IDs.
-  // This prevents SQL injection and invalid category filtering.
-  categoryIds = categoryIds.filter((id) => /^\d+$/.test(id)).map(Number);
-
-  // 🔄 Type Filter (income / expense)
-  let type = req.query.type;
-
-  if (type) {
-    type = type.toLowerCase();
-
-    // Restrict to allowed values to prevent invalid filtering logic.
-    if (!["income", "expense"].includes(type)) {
-      return sendError(res, {
-        statusCode: 400,
-        message: "Invalid type. Allowed values: income, expense",
-      });
-    }
-  }
-
-  // 💰 Amount Range Filters
-  const rawMinAmount = req.query.minAmount;
-  const rawMaxAmount = req.query.maxAmount;
-
-  let minAmount;
-  let maxAmount;
-
-  // Validate minimum amount
-  if (rawMinAmount !== undefined) {
-    minAmount = Number(rawMinAmount);
-
-    // Number.isFinite ensures value is a real number (not NaN, Infinity, etc.)
-    // Prevents malformed numeric queries.
-    if (!Number.isFinite(minAmount)) {
-      return sendError(res, {
-        statusCode: 400,
-        message: "minAmount must be a valid number",
-      });
-    }
-  }
-
-  // Validate maximum amount
-  if (rawMaxAmount !== undefined) {
-    maxAmount = Number(rawMaxAmount);
-
-    if (!Number.isFinite(maxAmount)) {
-      return sendError(res, {
-        statusCode: 400,
-        message: "maxAmount must be a valid number",
-      });
-    }
-  }
-
-  // Logical validation: max must not be smaller than min.
-  // Prevents contradictory filter ranges.
-  if (
-    minAmount !== undefined &&
-    maxAmount !== undefined &&
-    maxAmount < minAmount
-  ) {
-    return sendError(res, {
-      statusCode: 400,
-      message: "maxAmount must be greater than or equal to minAmount",
-    });
-  }
-
-  // 🔍 Search Filter (note or category name)
-  let search = req.query.search;
-
-  if (search !== undefined) {
-
-    if (typeof search !== "string") {
-      return sendError(res, {
-        statusCode: 400,
-        message: "Search must be a string",
-      });
-    }
-
-    search = search.trim();
-
-    // Prevent overly long search inputs.
-    // Protects performance and avoids abuse (e.g., extremely long LIKE queries).
-    if (search.length > 100) {
-      return sendError(res, {
-        statusCode: 400,
-        message: "Search query too long (max 100 characters)",
-      });
-    }
-  }
-
-  // 📊 Sorting Validation
-  // Only allow whitelisted DB columns.
-  // This prevents SQL injection through dynamic ORDER BY.
-  const allowedSortFields = {
-    amount: "t.amount",
-    trn_date: "t.trn_date",
-    categoryName: "c.name",
-  };
-
-  const allowedOrders = ["asc", "desc"];
-
-  let sortBy = req.query.sortBy || "trn_date";
-  let order = req.query.order || "desc";
-
-  if (!allowedSortFields[sortBy]) {
-    return sendError(res, {
-      statusCode: 400,
-      message: "Invalid sort field",
-    });
-  }
-
-  if (!allowedOrders.includes(order.toLowerCase())) {
-    return sendError(res, {
-      statusCode: 400,
-      message: "Invalid order value",
-    });
-  }
-
-  order = order.toUpperCase();
-
-  // Safe DB column mapping
-  const safeSortColumn = allowedSortFields[sortBy];
-
-  // 🌐 Base URL Construction
-  // Needed for generating absolute URLs for file attachments.
-  // Avoids hardcoding domain values inside service layer.
-  const baseUrl = `${req.protocol}://${req.get("host")}`;
-
+router.get("/", authenticationToken, async (req, res, next) => {
   try {
+    // 🔐 Extract authenticated user ID from middleware.
+    // This ensures each user can only access their own transactions.
+    const userId = req.userId;
+
+    // 📄 Pagination Parameters
+    // Math.max prevents negative values (e.g., skip=-10).
+    // parseInt converts query string to number safely.
+    const skip = Math.max(0, parseInt(req.query.skip) || 0);
+    const take = Math.max(0, parseInt(req.query.take) || 10);
+
+    // 📅 Date Range Filters
+    const startDate = req.query.startDate;
+    const endDate = req.query.endDate;
+
+    // Validate ISO date format to prevent invalid date parsing in DB queries.
+    // This avoids runtime SQL errors and inconsistent filtering.
+    if (startDate && !isValidISODate(startDate)) {
+      return next({
+        statusCode: 400,
+        message: "Invalid startDate format. Use YYYY-MM-DD",
+      });
+    }
+
+    if (endDate && !isValidISODate(endDate)) {
+      return next({
+        statusCode: 400,
+        message: "Invalid endDate format. Use YYYY-MM-DD",
+      });
+    }
+
+    // Logical validation: startDate must not exceed endDate.
+    // Prevents meaningless queries like future-to-past range.
+    if (startDate && endDate && new Date(startDate) > new Date(endDate)) {
+      return next({
+        statusCode: 400,
+        message: "startDate cannot be greater than endDate",
+      });
+    }
+
+    // 📂 Category Filter (supports single or multiple IDs)
+    let categoryIds = req.query.categoryIds;
+
+    if (!categoryIds) {
+      categoryIds = [];
+    } else if (!Array.isArray(categoryIds)) {
+      categoryIds = [categoryIds];
+    }
+
+    // Keep only numeric IDs.
+    // This prevents SQL injection and invalid category filtering.
+    categoryIds = categoryIds.filter((id) => /^\d+$/.test(id)).map(Number);
+
+    // 🔄 Type Filter (income / expense)
+    let type = req.query.type;
+
+    if (type) {
+      type = type.toLowerCase();
+
+      // Restrict to allowed values to prevent invalid filtering logic.
+      if (!["income", "expense"].includes(type)) {
+        return next({
+          statusCode: 400,
+          message: "Invalid type. Allowed values: income, expense",
+        });
+      }
+    }
+
+    // 💰 Amount Range Filters
+    const rawMinAmount = req.query.minAmount;
+    const rawMaxAmount = req.query.maxAmount;
+
+    let minAmount;
+    let maxAmount;
+
+    // Validate minimum amount
+    if (rawMinAmount !== undefined) {
+      minAmount = Number(rawMinAmount);
+
+      // Number.isFinite ensures value is a real number (not NaN, Infinity, etc.)
+      // Prevents malformed numeric queries.
+      if (!Number.isFinite(minAmount)) {
+        return next({
+          statusCode: 400,
+          message: "minAmount must be a valid number",
+        });
+      }
+    }
+
+    // Validate maximum amount
+    if (rawMaxAmount !== undefined) {
+      maxAmount = Number(rawMaxAmount);
+
+      if (!Number.isFinite(maxAmount)) {
+        return next({
+          statusCode: 400,
+          message: "maxAmount must be a valid number",
+        });
+      }
+    }
+
+    // Logical validation: max must not be smaller than min.
+    // Prevents contradictory filter ranges.
+    if (
+      minAmount !== undefined &&
+      maxAmount !== undefined &&
+      maxAmount < minAmount
+    ) {
+      return next({
+        statusCode: 400,
+        message: "maxAmount must be greater than or equal to minAmount",
+      });
+    }
+
+    // 🔍 Search Filter (note or category name)
+    let search = req.query.search;
+
+    if (search !== undefined) {
+      if (typeof search !== "string") {
+        return next({
+          statusCode: 400,
+          message: "Search must be a string",
+        });
+      }
+
+      search = search.trim();
+
+      // Prevent overly long search inputs.
+      // Protects performance and avoids abuse (e.g., extremely long LIKE queries).
+      if (search.length > 100) {
+        return next({
+          statusCode: 400,
+          message: "Search query too long (max 100 characters)",
+        });
+      }
+    }
+
+    // 📊 Sorting Validation
+    // Only allow whitelisted DB columns.
+    // This prevents SQL injection through dynamic ORDER BY.
+    const allowedSortFields = {
+      amount: "t.amount",
+      trn_date: "t.trn_date",
+      categoryName: "c.name",
+    };
+
+    const allowedOrders = ["asc", "desc"];
+
+    let sortBy = req.query.sortBy || "trn_date";
+    let order = req.query.order || "desc";
+
+    if (!allowedSortFields[sortBy]) {
+      return next({
+        statusCode: 400,
+        message: "Invalid sort field",
+      });
+    }
+
+    if (!allowedOrders.includes(order.toLowerCase())) {
+      return next({
+        statusCode: 400,
+        message: "Invalid order value",
+      });
+    }
+
+    order = order.toUpperCase();
+
+    // Safe DB column mapping
+    const safeSortColumn = allowedSortFields[sortBy];
+
+    // 🌐 Base URL Construction
+    // Needed for generating absolute URLs for file attachments.
+    // Avoids hardcoding domain values inside service layer.
+    const baseUrl = `${req.protocol}://${req.get("host")}`;
+
     // Delegate filtering, sorting, pagination to service layer.
     // Keeps controller thin and maintains separation of concerns.
     const result = await fetchTransactions(userId, {
@@ -267,14 +265,10 @@ router.get("/", authenticationToken, async (req, res) => {
       totalCount: result.total,
       hasMore: skip + take < result.total,
     });
-
   } catch (err) {
     // Catch unexpected database/runtime errors.
     // Standardized error response keeps API consistent.
-    return sendError(res, {
-      statusCode: 500,
-      message: err.message,
-    });
+    next(err);
   }
 });
 
@@ -329,22 +323,22 @@ router.post(
   /**
    * 🧠 MAIN CONTROLLER LOGIC
    */
-  async (req, res) => {
-    // 🔐 Logged-in user ID (set by authenticationToken middleware)
-    const userId = req.userId;
-
-    // 📥 Extract form fields (sent as multipart/form-data text fields)
-    const { categoryId, amount, note, trnDate } = req.body;
-
-    // ❗ Required field validation
-    if (!categoryId || !amount || !trnDate) {
-      return sendError(res, {
-        statusCode: 422,
-        message: "categoryId, amount and trnDate are required",
-      });
-    }
-
+  async (req, res, next) => {
     try {
+      // 🔐 Logged-in user ID (set by authenticationToken middleware)
+      const userId = req.userId;
+
+      // 📥 Extract form fields (sent as multipart/form-data text fields)
+      const { categoryId, amount, note, trnDate } = req.body;
+
+      // ❗ Required field validation
+      if (!categoryId || !amount || !trnDate) {
+        return next({
+          statusCode: 422,
+          message: "categoryId, amount and trnDate are required",
+        });
+      }
+
       await addTransaction(
         userId,
         { categoryId, amount, note, trnDate },
@@ -356,10 +350,7 @@ router.post(
       });
     } catch (err) {
       // service already cleaned up attachments on error
-      return sendError(res, {
-        statusCode: 500,
-        message: err.message,
-      });
+      return next(err);
     }
   },
 );
@@ -427,51 +418,51 @@ router.put(
    * - Optional: add new attachments, remove by attachment IDs
    * ==========================================
    */
-  async (req, res) => {
-    // 👤 Extract authenticated user ID
-    const userId = req.userId;
-
-    // 📥 Transaction ID from query (required)
-    const { trnId } = req.query;
-
-    // 📥 Optional transaction fields (send only what you want to update)
-    const {
-      categoryId,
-      amount,
-      note,
-      trnDate,
-      deleteAttachmentIds: rawDeleteIds,
-    } = req.body;
-
-    const deleteAttachmentIds = Array.isArray(rawDeleteIds)
-      ? rawDeleteIds
-      : rawDeleteIds != null
-        ? [rawDeleteIds]
-        : [];
-
-    if (!trnId) {
-      return sendError(res, {
-        statusCode: 422,
-        message: "trnId is required (query param).",
-      });
-    }
-
-    if (
-      categoryId === undefined &&
-      amount === undefined &&
-      note === undefined &&
-      trnDate === undefined &&
-      deleteAttachmentIds.length === 0 &&
-      !(req.files && req.files.length)
-    ) {
-      return sendError(res, {
-        statusCode: 422,
-        message:
-          "Provide at least one field to update (categoryId, amount, note, trnDate), and/or deleteAttachmentIds, and/or new attachments.",
-      });
-    }
-
+  async (req, res, next) => {
     try {
+      // 👤 Extract authenticated user ID
+      const userId = req.userId;
+
+      // 📥 Transaction ID from query (required)
+      const { trnId } = req.query;
+
+      // 📥 Optional transaction fields (send only what you want to update)
+      const {
+        categoryId,
+        amount,
+        note,
+        trnDate,
+        deleteAttachmentIds: rawDeleteIds,
+      } = req.body;
+
+      const deleteAttachmentIds = Array.isArray(rawDeleteIds)
+        ? rawDeleteIds
+        : rawDeleteIds != null
+          ? [rawDeleteIds]
+          : [];
+
+      if (!trnId) {
+        return next({
+          statusCode: 422,
+          message: "trnId is required (query param).",
+        });
+      }
+
+      if (
+        categoryId === undefined &&
+        amount === undefined &&
+        note === undefined &&
+        trnDate === undefined &&
+        deleteAttachmentIds.length === 0 &&
+        !(req.files && req.files.length)
+      ) {
+        return next({
+          statusCode: 422,
+          message:
+            "Provide at least one field to update (categoryId, amount, note, trnDate), and/or deleteAttachmentIds, and/or new attachments.",
+        });
+      }
+
       await updateTransaction(
         userId,
         trnId,
@@ -483,7 +474,7 @@ router.put(
         message: "Transaction updated successfully.",
       });
     } catch (err) {
-      return sendError(res, {
+      return next({
         statusCode: err.message === "Transaction not found" ? 404 : 500,
         message: err.message,
       });
@@ -504,21 +495,28 @@ router.put(
  * - Remove related attachment files from disk
  * - Maintain DB consistency using transaction
  */
-router.delete("/delete", authenticationToken, async (req, res) => {
-  // 👤 Logged-in user ID
-  const userId = req.userId;
-
-  // 📥 Transaction ID from query
-  const { trnId } = req.query;
-
+router.delete("/delete", authenticationToken, async (req, res, next) => {
   try {
+    // 👤 Logged-in user ID
+    const userId = req.userId;
+
+    // 📥 Transaction ID from query
+    const { trnId } = req.query;
+
+    if (!trnId) {
+      return next({
+        statusCode: 422,
+        message: "trnId is required",
+      });
+    }
+
     await deleteTransaction(userId, trnId);
     return sendSuccess(res, {
       statusCode: 200,
       message: "Transaction deleted successfully.",
     });
   } catch (err) {
-    return sendError(res, {
+    return next({
       statusCode: err.message === "Transaction not found" ? 404 : 500,
       message: err.message,
     });
@@ -538,11 +536,11 @@ router.delete("/delete", authenticationToken, async (req, res) => {
  * - Join category details (name, type)
  * - Return sorted by latest created
  */
-router.get("/recurring/", authenticationToken, async (req, res) => {
-  // 👤 Logged-in user ID
-  const userId = req.userId;
-
+router.get("/recurring", authenticationToken, async (req, res, next) => {
   try {
+    // 👤 Logged-in user ID
+    const userId = req.userId;
+
     const rows = await getRecurringTransactions(userId);
     return sendSuccess(res, {
       statusCode: 200,
@@ -550,10 +548,7 @@ router.get("/recurring/", authenticationToken, async (req, res) => {
     });
   } catch (err) {
     // ❌ Handle server errors
-    return sendError(res, {
-      statusCode: 500,
-      message: err.message,
-    });
+    return next(err);
   }
 });
 
@@ -570,22 +565,23 @@ router.get("/recurring/", authenticationToken, async (req, res) => {
  * - Store recurring transaction details
  * - Support optional note and end date
  */
-router.post("/recurring/add", authenticationToken, async (req, res) => {
-  // 👤 Logged-in user ID
-  const userId = req.userId;
-
-  // 📥 Extract request body
-  const { categoryId, amount, note, frequency, startDate, endDate } = req.body;
-
-  // ❗ Validation: mandatory fields check
-  if (!categoryId || !amount || !frequency || !startDate) {
-    return sendError(res, {
-      statusCode: 422,
-      message: "Required fields missing",
-    });
-  }
-
+router.post("/recurring/add", authenticationToken, async (req, res, next) => {
   try {
+    // 👤 Logged-in user ID
+    const userId = req.userId;
+
+    // 📥 Extract request body
+    const { categoryId, amount, note, frequency, startDate, endDate } =
+      req.body;
+
+    // ❗ Validation: mandatory fields check
+    if (!categoryId || !amount || !frequency || !startDate) {
+      return next({
+        statusCode: 422,
+        message: "Required fields missing",
+      });
+    }
+
     await addRecurringTransaction(userId, {
       categoryId,
       amount,
@@ -600,10 +596,7 @@ router.post("/recurring/add", authenticationToken, async (req, res) => {
     });
   } catch (err) {
     // ❌ Handle unexpected server errors
-    return sendError(res, {
-      statusCode: 500,
-      message: err.message,
-    });
+    next(err);
   }
 });
 
@@ -620,26 +613,33 @@ router.post("/recurring/add", authenticationToken, async (req, res) => {
  * - Support status toggle (is_active)
  * - Ensure user ownership before update
  */
-router.put("/recurring/update", authenticationToken, async (req, res) => {
-  // 👤 Logged-in user ID
-  const userId = req.userId;
-
-  // 📥 Recurring ID from query
-  const { recurringId } = req.query;
-
-  // 📥 Request body fields
-  const { categoryId, amount, note, frequency, startDate, endDate, isActive } =
-    req.body;
-
-  // ❗ recurringId is mandatory
-  if (!recurringId) {
-    return sendError(res, {
-      statusCode: 422,
-      message: "Recurring ID is required",
-    });
-  }
-
+router.put("/recurring/update", authenticationToken, async (req, res, next) => {
   try {
+    // 👤 Logged-in user ID
+    const userId = req.userId;
+
+    // 📥 Recurring ID from query
+    const { recurringId } = req.query;
+
+    // 📥 Request body fields
+    const {
+      categoryId,
+      amount,
+      note,
+      frequency,
+      startDate,
+      endDate,
+      isActive,
+    } = req.body;
+
+    // ❗ recurringId is mandatory
+    if (!recurringId) {
+      return next({
+        statusCode: 422,
+        message: "Recurring ID is required",
+      });
+    }
+
     await updateRecurringTransaction(userId, recurringId, {
       categoryId,
       amount,
@@ -655,7 +655,7 @@ router.put("/recurring/update", authenticationToken, async (req, res) => {
     });
   } catch (err) {
     // ❌ Handle server errors
-    return sendError(res, {
+    return next({
       statusCode: err.message === "Recurring expense not found" ? 404 : 500,
       message: err.message,
     });

@@ -28,6 +28,9 @@ const transactionsRoutes = require("./src/routes/transactions");
 const budgetsRoutes = require("./src/routes/budgets");
 const reportRoutes = require("./src/routes/report");
 
+// Import global error handler
+const errorHandler = require("./src/middleware/errorHandler");
+
 app.use("/api/auth", authRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/categories", categoriesRoutes);
@@ -53,6 +56,10 @@ app.use("/api/report", reportRoutes);
 
 app.use("/uploads", express.static("uploads"));
 
+// =======================================
+// ❗ Global Error Handler (Must be last)
+// =======================================
+app.use(errorHandler);
 
 // =======================================
 // 🔌 Server Port Configuration

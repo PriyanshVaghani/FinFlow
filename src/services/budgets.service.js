@@ -98,7 +98,7 @@ const addBudget = async (userId, categoryId, month, amount) => {
     );
 
     if (category.length === 0) {
-      throw new Error("Invalid expense category");
+      throw { statusCode: 404, message: "Invalid expense category" };
     }
 
     // prevent duplicates
@@ -123,7 +123,10 @@ const addBudget = async (userId, categoryId, month, amount) => {
     );
 
     if (existingBudget.length > 0) {
-      throw new Error("Budget already exists for this category and month");
+      throw {
+        statusCode: 404,
+        message: "Budget already exists for this category and month",
+      };
     }
 
     /**
@@ -180,7 +183,7 @@ const updateBudget = async (
     );
 
     if (existing.length === 0) {
-      throw new Error("Budget not found");
+      throw { statusCode: 404, message: "Budget not found" };
     }
 
     // if category change requested, ensure category exists
@@ -201,7 +204,7 @@ const updateBudget = async (
       );
 
       if (category.length === 0) {
-        throw new Error("Category not found");
+        throw { statusCode: 404, message: "Category not found" };
       }
     }
 
@@ -282,7 +285,7 @@ const deleteBudget = async (userId, budgetId) => {
     );
 
     if (existing.length === 0) {
-      throw new Error("Budget not found");
+      throw { statusCode: 404, message: "Budget not found" };
     }
 
     /**

@@ -29,7 +29,7 @@ const registerUser = async ({ name, email, password, mobileNo }) => {
     );
 
     if (existing.length > 0) {
-      throw new Error("User already exists");
+      throw { statusCode: 409, message: "User already exists" };
     }
 
     // 2️⃣ Hash the password before storing
@@ -95,21 +95,24 @@ const loginUser = async (email, password) => {
 
     // ❌ User not found
     if (existing.length === 0) {
-      throw new Error("User not found");
+      throw { statusCode: 404, message: "User not found" };
     }
 
     const user = existing[0];
 
     // ❌ Check if account is inactive
     if (!user.is_active) {
-      throw new Error("Your account is inactive. Please contact admin.");
+      throw {
+        statusCode: 403,
+        message: "Your account is inactive. Please contact admin.",
+      };
     }
 
     // 2️⃣ Verify password
     const isPasswordValid = await bcrypt.compare(password, user.password_hash);
 
     if (!isPasswordValid) {
-      throw new Error("Invalid credentials");
+      throw { statusCode: 401, message: "Invalid credentials" };
     }
 
     // 3️⃣ Return user data (exclude password_hash)

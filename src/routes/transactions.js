@@ -474,10 +474,7 @@ router.put(
         message: "Transaction updated successfully.",
       });
     } catch (err) {
-      return next({
-        statusCode: err.message === "Transaction not found" ? 404 : 500,
-        message: err.message,
-      });
+      next(err);
     }
   },
 );
@@ -516,10 +513,7 @@ router.delete("/delete", authenticationToken, async (req, res, next) => {
       message: "Transaction deleted successfully.",
     });
   } catch (err) {
-    return next({
-      statusCode: err.message === "Transaction not found" ? 404 : 500,
-      message: err.message,
-    });
+    next(err);
   }
 });
 
@@ -655,10 +649,7 @@ router.put("/recurring/update", authenticationToken, async (req, res, next) => {
     });
   } catch (err) {
     // ❌ Handle server errors
-    return next({
-      statusCode: err.message === "Recurring expense not found" ? 404 : 500,
-      message: err.message,
-    });
+    next(err);
   }
 });
 

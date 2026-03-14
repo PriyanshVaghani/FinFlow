@@ -68,7 +68,7 @@ const addCategory = async (name, type, userId) => {
 
     // 1️⃣ Validate category type
     if (!ALLOWED_TYPES.includes(type)) {
-      throw new Error("Invalid category type");
+      throw { statusCode: 422, message: "Invalid category type" };
     }
 
     // 2️⃣ Prevent user from adding default category name
@@ -92,7 +92,10 @@ const addCategory = async (name, type, userId) => {
     );
 
     if (existing.length > 0) {
-      throw new Error("This category already exists as a default category");
+      throw {
+        statusCode: 409,
+        message: "This category already exists as a default category",
+      };
     }
 
     // 3️⃣ Insert new category for the logged-in user
@@ -161,7 +164,7 @@ const updateCategory = async (categoryId, name, userId) => {
 
     // 2️⃣ Check if update was successful
     if (result.affectedRows === 0) {
-      throw new Error("Category not found or unauthorized");
+      throw { statusCode: 404, message: "Category not found or unauthorized" };
     }
 
     return true;
@@ -205,7 +208,7 @@ const deleteCategory = async (categoryId, userId) => {
 
     // 2️⃣ Check if delete was successful
     if (result.affectedRows === 0) {
-      throw new Error("Category not found or unauthorized");
+      throw { statusCode: 404, message: "Category not found or unauthorized" };
     }
 
     return true;

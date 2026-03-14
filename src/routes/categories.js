@@ -89,21 +89,6 @@ router.post("/add", authenticationToken, async (req, res, next) => {
       data,
     });
   } catch (err) {
-    // ✅ Handle specific error cases
-    if (err.message === "Invalid category type") {
-      return next({
-        statusCode: 422,
-        message: err.message,
-      });
-    }
-
-    if (err.message === "This category already exists as a default category") {
-      return next({
-        statusCode: 409,
-        message: err.message,
-      });
-    }
-
     if (err.code === "ER_DUP_ENTRY") {
       return next({
         statusCode: 409, // Conflict
@@ -147,14 +132,6 @@ router.put("/update", authenticationToken, async (req, res, next) => {
       message: "Category updated successfully",
     });
   } catch (err) {
-    // ❌ Handle specific error cases
-    if (err.message === "Category not found or unauthorized") {
-      return next({
-        statusCode: 404, // Not Found
-        message: err.message,
-      });
-    }
-
     next(err);
   }
 });
@@ -191,14 +168,6 @@ router.delete("/delete", authenticationToken, async (req, res, next) => {
       message: "Category deleted successfully",
     });
   } catch (err) {
-    // ❌ Handle specific error cases
-    if (err.message === "Category not found or unauthorized") {
-      return next({
-        statusCode: 404,
-        message: err.message,
-      });
-    }
-
     next(err);
   }
 });

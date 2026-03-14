@@ -126,20 +126,6 @@ router.post("/add", authenticationToken, async (req, res, next) => {
       data,
     });
   } catch (err) {
-    if (err.message === "Invalid expense category") {
-      return next({
-        statusCode: 404,
-        message: err.message,
-      });
-    }
-
-    if (err.message === "Budget already exists for this category and month") {
-      return next({
-        statusCode: 409,
-        message: err.message,
-      });
-    }
-
     if (err.code === "ER_DUP_ENTRY") {
       return next({
         statusCode: 409,
@@ -243,13 +229,6 @@ router.delete("/delete", authenticationToken, async (req, res, next) => {
       message: "Budget deleted successfully",
     });
   } catch (err) {
-    if (err.message === "Budget not found") {
-      return next({
-        statusCode: 404,
-        message: err.message,
-      });
-    }
-
     next(err);
   }
 });
@@ -288,14 +267,13 @@ router.get("/analytics", authenticationToken, async (req, res, next) => {
       });
     }
 
-
     // Validate month format if provided
-if (month !== undefined && !isValidMonth(month)) {
-  return next({
-    statusCode: 422,
-    message: "Month must be in YYYY-MM format",
-  });
-}
+    if (month !== undefined && !isValidMonth(month)) {
+      return next({
+        statusCode: 422,
+        message: "Month must be in YYYY-MM format",
+      });
+    }
 
     const data = await getBudgetAnalytics(userId, month);
     return sendSuccess(res, {

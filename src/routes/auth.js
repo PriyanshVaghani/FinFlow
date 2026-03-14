@@ -44,14 +44,6 @@ router.post("/register", async (req, res, next) => {
       data: userData,
     });
   } catch (err) {
-    // If user already exists
-    if (err.message === "User already exists") {
-      return next({
-        statusCode: 409, // Conflict
-        message: err.message,
-      });
-    }
-
     // Pass unexpected errors to global handler
     next(err);
   }
@@ -104,24 +96,6 @@ router.post("/login", async (req, res, next) => {
       },
     });
   } catch (err) {
-    // ❌ Handle authentication errors
-    if (
-      err.message === "User not found" ||
-      err.message === "Invalid credentials"
-    ) {
-      return next({
-        statusCode: 401,
-        message: err.message,
-      });
-    }
-
-    if (err.message === "Your account is inactive. Please contact admin.") {
-      return next({
-        statusCode: 403,
-        message: err.message,
-      });
-    }
-
     // Pass unexpected errors to global handler
     next(err);
   }

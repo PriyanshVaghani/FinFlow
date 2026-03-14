@@ -450,7 +450,7 @@ const updateTransaction = async (
       );
 
       if (res.affectedRows === 0) {
-        throw new Error("Transaction not found");
+        throw { statusCode: 404, message: "Transaction not found" };
       }
     } else {
       // still verify existence
@@ -471,7 +471,7 @@ const updateTransaction = async (
         [trnId, userId],
       );
       if (!row) {
-        throw new Error("Transaction not found");
+        throw { statusCode: 404, message: "Transaction not found" };
       }
     }
 
@@ -670,7 +670,7 @@ const deleteTransaction = async (userId, trnId) => {
     );
 
     if (result.affectedRows === 0) {
-      throw new Error("Transaction not found");
+      throw { statusCode: 404, message: "Transaction not found" };
     }
 
     for (const file of attachments) {
@@ -829,7 +829,7 @@ const updateRecurringTransaction = async (userId, recurringId, updates) => {
   }
 
   if (fields.length === 0) {
-    throw new Error("No fields provided to update");
+    throw { statusCode: 422, message: "No fields provided to update" };
   }
 
   /**
@@ -861,7 +861,7 @@ const updateRecurringTransaction = async (userId, recurringId, updates) => {
   );
 
   if (result.affectedRows === 0) {
-    throw new Error("Recurring expense not found");
+    throw { statusCode: 404, message: "Recurring expense not found" };
   }
 
   return true;

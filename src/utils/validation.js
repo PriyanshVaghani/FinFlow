@@ -30,8 +30,24 @@ const isValidISODate = (dateStr) => {
   return !isNaN(date.getTime());
 };
 
+/**
+ * ======================================================
+ * 📅 Validate Month Format (YYYY-MM)
+ * ======================================================
+ * Ensures month follows correct format and valid range
+ *
+ * Regex explanation:
+ * ^\d{4}        → 4-digit year
+ * -
+ * (0[1-9]|1[0-2]) → Month from 01 to 12
+ */
+const isValidMonth = (month) => {
+  const monthRegex = /^\d{4}-(0[1-9]|1[0-2])$/;
+  return monthRegex.test(month);
+};
+
 // =======================================
 // 📤 Export Module
 // =======================================
 
-module.exports = { isValidISODate }; // 🚀 Exposes ISO date validation utility for controller-level input validation
+module.exports = { isValidISODate, isValidMonth }; // 🚀 Exposes ISO date validation utility for controller-level input validation

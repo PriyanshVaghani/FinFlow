@@ -5,6 +5,7 @@ const express = require("express");
 const router = express.Router();
 const { sendSuccess } = require("../utils/responseHelper"); // 📤 Standard API response helpers
 const { authenticationToken } = require("../middleware/auth_middleware"); // 🔐 JWT authentication middleware
+const { isValidMonth } = require("../utils/validation");
 const {
   getBudgets,
   addBudget,
@@ -47,6 +48,14 @@ router.get("/", authenticationToken, async (req, res, next) => {
       });
     }
 
+    // Validate month format if provided
+    if (month !== undefined && !isValidMonth(month)) {
+      return next({
+        statusCode: 422,
+        message: "Month must be in YYYY-MM format",
+      });
+    }
+
     // 2️⃣ Fetch budgets via service
     const rows = await getBudgets(userId, month);
 
@@ -84,7 +93,7 @@ router.post("/add", authenticationToken, async (req, res, next) => {
     const { categoryId, month, amount } = req.body;
     const userId = req.userId; // 👤 From JWT
 
-    // 1️⃣ Basic field validation
+    // Basic field validation
     if (!categoryId || !month || amount == null) {
       return next({
         statusCode: 422,
@@ -92,7 +101,7 @@ router.post("/add", authenticationToken, async (req, res, next) => {
       });
     }
 
-    // 2️⃣ Ensure budget amount is positive
+    // Ensure budget amount is positive
     if (amount <= 0) {
       return next({
         statusCode: 422,
@@ -100,16 +109,15 @@ router.post("/add", authenticationToken, async (req, res, next) => {
       });
     }
 
-    // 3️⃣ Validate month format
-    const monthRegex = /^\d{4}-(0[1-9]|1[0-2])$/;
-    if (!monthRegex.test(month)) {
+    // Validate month format if provided
+    if (month !== undefined && !isValidMonth(month)) {
       return next({
         statusCode: 422,
         message: "Month must be in YYYY-MM format",
       });
     }
 
-    // 2️⃣ Add budget via service
+    // Add budget via service
     const data = await addBudget(userId, categoryId, month, amount);
 
     return sendSuccess(res, {
@@ -189,19 +197,15 @@ router.put("/update", authenticationToken, async (req, res, next) => {
         message: "Amount must be a positive number",
       });
     }
-
     // Validate month format if provided
-    if (month !== undefined) {
-      const monthRegex = /^\d{4}-(0[1-9]|1[0-2])$/;
-      if (!monthRegex.test(month)) {
-        return next({
-          statusCode: 422,
-          message: "Month must be in YYYY-MM format",
-        });
-      }
+    if (month !== undefined && !isValidMonth(month)) {
+      return next({
+        statusCode: 422,
+        message: "Month must be in YYYY-MM format",
+      });
     }
 
-    // 2️⃣ Update via service
+    // Update via service
     await updateBudget(userId, budgetId, { categoryId, month, amount });
 
     return sendSuccess(res, {
@@ -231,7 +235,7 @@ router.delete("/delete", authenticationToken, async (req, res, next) => {
 
     const userId = req.userId;
 
-    // 2️⃣ Delete via service
+    // Delete via service
     await deleteBudget(userId, budgetId);
 
     return sendSuccess(res, {
@@ -284,23 +288,14 @@ router.get("/analytics", authenticationToken, async (req, res, next) => {
       });
     }
 
-    /**
-     * ------------------------------------------------------
-     * 🛑 Validation: Month Format (YYYY-MM)
-     * ------------------------------------------------------
-     * Regex explanation:
-     * ^\d{4}        → 4-digit year
-     * -
-     * (0[1-9]|1[0-2]) → Month from 01 to 12
-     */
-    const monthRegex = /^\d{4}-(0[1-9]|1[0-2])$/;
 
-    if (!monthRegex.test(month)) {
-      return next({
-        statusCode: 422,
-        message: "month must be in YYYY-MM format",
-      });
-    }
+    // Validate month format if provided
+if (month !== undefined && !isValidMonth(month)) {
+  return next({
+    statusCode: 422,
+    message: "Month must be in YYYY-MM format",
+  });
+}
 
     const data = await getBudgetAnalytics(userId, month);
     return sendSuccess(res, {

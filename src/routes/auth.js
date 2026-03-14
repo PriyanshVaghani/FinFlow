@@ -115,6 +115,13 @@ router.post("/login", async (req, res, next) => {
       });
     }
 
+    if (err.message === "Your account is inactive. Please contact admin.") {
+      return next({
+        statusCode: 403,
+        message: err.message,
+      });
+    }
+
     // Pass unexpected errors to global handler
     next(err);
   }

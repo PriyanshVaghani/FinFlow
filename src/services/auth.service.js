@@ -100,6 +100,11 @@ const loginUser = async (email, password) => {
 
     const user = existing[0];
 
+    // ❌ Check if account is inactive
+    if (!user.is_active) {
+      throw new Error("Your account is inactive. Please contact admin.");
+    }
+
     // 2️⃣ Verify password
     const isPasswordValid = await bcrypt.compare(password, user.password_hash);
 

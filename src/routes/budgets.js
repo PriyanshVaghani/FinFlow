@@ -5,7 +5,16 @@ const express = require("express");
 const router = express.Router();
 const { sendSuccess } = require("../utils/responseHelper"); // 📤 Standard API response helpers
 const { authenticationToken } = require("../middleware/auth_middleware"); // 🔐 JWT authentication middleware
-const { isValidMonth } = require("../utils/validation");
+
+// ✅ Budget request validators
+const {
+  validateGetBudgets,
+  validateAddBudget,
+  validateUpdateBudget,
+  validateDeleteBudget,
+  validateBudgetAnalytics,
+} = require("../validators/budgets.validator");
+
 const {
   getBudgets,
   addBudget,
@@ -27,47 +36,37 @@ const {
  * - month (required) → Format: YYYY-MM (Example: 2026-02)
  *
  * Responsibilities:
- * - Validate month input
- * - Fetch budgets belonging to logged-in user
+ * - Validate month input (handled by validator middleware)
+ * - Fetch budgets belonging to the logged-in user
  * - Calculate total spent amount per category
  * - Return structured response
  */
-router.get("/", authenticationToken, async (req, res, next) => {
-  try {
-    // 📥 Extract month from query string
-    const { month } = req.query;
+router.get(
+  "/",
+  authenticationToken,
+  validateGetBudgets,
+  async (req, res, next) => {
+    try {
+      // 📥 Extract month from query string
+      const { month } = req.query;
 
-    // 👤 Logged-in user ID (provided by authentication middleware)
-    const userId = req.userId;
+      // 👤 Logged-in user ID (provided by authentication middleware)
+      const userId = req.userId;
 
-    // ❗ Ensure month is provided
-    if (!month) {
-      return next({
-        statusCode: 422,
-        message: "month is required",
+      // 📂 Fetch budgets via service
+      const rows = await getBudgets(userId, month);
+
+      // 📤 Return formatted success response
+      return sendSuccess(res, {
+        statusCode: 200,
+        data: rows,
       });
+    } catch (err) {
+      // ❌ Forward unexpected errors to global handler
+      next(err);
     }
-
-    // Validate month format if provided
-    if (month !== undefined && !isValidMonth(month)) {
-      return next({
-        statusCode: 422,
-        message: "Month must be in YYYY-MM format",
-      });
-    }
-
-    // 2️⃣ Fetch budgets via service
-    const rows = await getBudgets(userId, month);
-
-    // ✅ Return formatted success response
-    return sendSuccess(res, {
-      statusCode: 200,
-      data: rows,
-    });
-  } catch (err) {
-    next(err); // pass error to global handler
-  }
-});
+  },
+);
 
 /**
  * ======================================================
@@ -83,59 +82,42 @@ router.get("/", authenticationToken, async (req, res, next) => {
  * - amount (positive number, required)
  *
  * Responsibilities:
- * - Validate inputs
- * - Ensure category is valid Expense type
+ * - Validate inputs (handled by validator middleware)
+ * - Ensure category is a valid Expense type
  * - Prevent duplicate budgets
  * - Insert new budget record
  */
-router.post("/add", authenticationToken, async (req, res, next) => {
-  try {
-    const { categoryId, month, amount } = req.body;
-    const userId = req.userId; // 👤 From JWT
+router.post(
+  "/add",
+  authenticationToken,
+  validateAddBudget,
+  async (req, res, next) => {
+    try {
+      const { categoryId, month, amount } = req.body;
+      const userId = req.userId; // 👤 Extracted from JWT
 
-    // Basic field validation
-    if (!categoryId || !month || amount == null) {
-      return next({
-        statusCode: 422,
-        message: "categoryId, month and amount are required",
+      // 📂 Add budget via service
+      const data = await addBudget(userId, categoryId, month, amount);
+
+      return sendSuccess(res, {
+        statusCode: 201,
+        message: "Budget created successfully",
+        data,
       });
+    } catch (err) {
+      // ⚠️ Handle duplicate budget entry
+      if (err.code === "ER_DUP_ENTRY") {
+        return next({
+          statusCode: 409,
+          message: "A budget already exists for this category and month",
+        });
+      }
+
+      // ❌ Forward unexpected errors
+      next(err);
     }
-
-    // Ensure budget amount is positive
-    if (amount <= 0) {
-      return next({
-        statusCode: 422,
-        message: "Budget amount must be greater than 0",
-      });
-    }
-
-    // Validate month format if provided
-    if (month !== undefined && !isValidMonth(month)) {
-      return next({
-        statusCode: 422,
-        message: "Month must be in YYYY-MM format",
-      });
-    }
-
-    // Add budget via service
-    const data = await addBudget(userId, categoryId, month, amount);
-
-    return sendSuccess(res, {
-      statusCode: 201,
-      message: "Budget created successfully",
-      data,
-    });
-  } catch (err) {
-    if (err.code === "ER_DUP_ENTRY") {
-      return next({
-        statusCode: 409,
-        message: "Budget already exists for this category and month",
-      });
-    }
-
-    next(err);
-  }
-});
+  },
+);
 
 /**
  * ======================================================
@@ -150,58 +132,29 @@ router.post("/add", authenticationToken, async (req, res, next) => {
  * - Allow partial updates
  * - Dynamically construct update query
  */
-router.put("/update", authenticationToken, async (req, res, next) => {
-  try {
-    const { budgetId } = req.query;
-    const userId = req.userId;
-    const { categoryId, month, amount } = req.body;
+router.put(
+  "/update",
+  authenticationToken,
+  validateUpdateBudget,
+  async (req, res, next) => {
+    try {
+      const { budgetId } = req.query;
+      const userId = req.userId;
+      const { categoryId, month, amount } = req.body;
 
-    // Validate budgetId presence
-    if (!budgetId) {
-      return next({
-        statusCode: 422,
-        message: "BudgetId is required",
+      // 📂 Update budget via service
+      await updateBudget(userId, budgetId, { categoryId, month, amount });
+
+      return sendSuccess(res, {
+        statusCode: 200,
+        message: "Budget updated successfully",
       });
+    } catch (err) {
+      // ❌ Forward unexpected errors
+      next(err);
     }
-
-    // Ensure at least one field is provided
-    if (
-      categoryId === undefined &&
-      month === undefined &&
-      amount === undefined
-    ) {
-      return next({
-        statusCode: 422,
-        message: "At least one field is required to update",
-      });
-    }
-
-    // Validate amount if provided
-    if (amount !== undefined && Number(amount) <= 0) {
-      return next({
-        statusCode: 422,
-        message: "Amount must be a positive number",
-      });
-    }
-    // Validate month format if provided
-    if (month !== undefined && !isValidMonth(month)) {
-      return next({
-        statusCode: 422,
-        message: "Month must be in YYYY-MM format",
-      });
-    }
-
-    // Update via service
-    await updateBudget(userId, budgetId, { categoryId, month, amount });
-
-    return sendSuccess(res, {
-      statusCode: 200,
-      message: "Budget updated successfully",
-    });
-  } catch (err) {
-    next(err);
-  }
-});
+  },
+);
 
 /**
  * ======================================================
@@ -215,23 +168,28 @@ router.put("/update", authenticationToken, async (req, res, next) => {
  * - Verify budget ownership
  * - Safely delete record
  */
-router.delete("/delete", authenticationToken, async (req, res, next) => {
-  try {
-    const { budgetId } = req.query;
+router.delete(
+  "/delete",
+  authenticationToken,
+  validateDeleteBudget,
+  async (req, res, next) => {
+    try {
+      const { budgetId } = req.query;
+      const userId = req.userId;
 
-    const userId = req.userId;
+      // 📂 Delete budget via service
+      await deleteBudget(userId, budgetId);
 
-    // Delete via service
-    await deleteBudget(userId, budgetId);
-
-    return sendSuccess(res, {
-      statusCode: 200,
-      message: "Budget deleted successfully",
-    });
-  } catch (err) {
-    next(err);
-  }
-});
+      return sendSuccess(res, {
+        statusCode: 200,
+        message: "Budget deleted successfully",
+      });
+    } catch (err) {
+      // ❌ Forward unexpected errors
+      next(err);
+    }
+  },
+);
 
 /**
  * ======================================================
@@ -251,40 +209,30 @@ router.delete("/delete", authenticationToken, async (req, res, next) => {
  * - Identify over-budget categories
  * - Return structured analytics response
  */
-router.get("/analytics", authenticationToken, async (req, res, next) => {
-  try {
-    // Extract month from query params
-    const { month } = req.query;
+router.get(
+  "/analytics",
+  authenticationToken,
+  validateBudgetAnalytics,
+  async (req, res, next) => {
+    try {
+      // 📥 Extract month from query params
+      const { month } = req.query;
 
-    // Logged-in user ID (from JWT middleware)
-    const userId = req.userId;
+      // 👤 Logged-in user ID (provided by JWT middleware)
+      const userId = req.userId;
 
-    // 🛑 Validation: Month Required
-    if (!month) {
-      return next({
-        statusCode: 422,
-        message: "month is required",
+      const data = await getBudgetAnalytics(userId, month);
+
+      return sendSuccess(res, {
+        statusCode: 200,
+        data,
       });
+    } catch (err) {
+      // ❌ Forward unexpected errors to global handler
+      next(err);
     }
-
-    // Validate month format if provided
-    if (month !== undefined && !isValidMonth(month)) {
-      return next({
-        statusCode: 422,
-        message: "Month must be in YYYY-MM format",
-      });
-    }
-
-    const data = await getBudgetAnalytics(userId, month);
-    return sendSuccess(res, {
-      statusCode: 200,
-      data,
-    });
-  } catch (err) {
-    // ❌ Error Handling
-    next(err);
-  }
-});
+  },
+);
 
 // =======================================
 // 📦 Export Router

@@ -3,15 +3,31 @@
 // =======================================
 const express = require("express");
 const router = express.Router();
+
 const { sendSuccess } = require("../utils/responseHelper"); // 📤 Standard API response helpers
 const { authenticationToken } = require("../middleware/auth_middleware"); // 🔐 JWT authentication middleware
+
+// 🛡️ Dashboard request validators
+// These middlewares validate query parameters before reaching controller logic
+const {
+  validateMonthlySummary,
+  validateCategorySummary,
+  validateMonthlyTrend,
+  validateMonthComparison,
+  validateRecentTransactions,
+} = require("../validators/dashboard.validator");
+
+// 📊 Dashboard service functions (business logic layer)
 const {
   getMonthlySummary,
   getCategorySummary,
   getMonthlyTrend,
   getMonthComparison,
 } = require("../services/dashboard.service");
+
+// 📂 Transaction service for fetching recent transactions
 const { fetchTransactions } = require("../services/transaction.service");
+
 /**
  * ======================================================
  * 📊 MONTHLY SUMMARY (INCOME / EXPENSE / BALANCE)
@@ -25,21 +41,33 @@ const { fetchTransactions } = require("../services/transaction.service");
  * - Calculate monthly expense total
  * - Return net balance (income - expense)
  * - Default to current month if not provided
+ *
+ * Validation:
+ * - Query parameters are validated via validateMonthlySummary middleware
  */
-router.get("/summary", authenticationToken, async (req, res, next) => {
-  try {
-    // 👤 Logged-in user ID
-    const userId = req.userId;
+router.get(
+  "/summary",
+  authenticationToken,
+  validateMonthlySummary,
+  async (req, res, next) => {
+    try {
+      // 👤 Logged-in user ID extracted from JWT middleware
+      const userId = req.userId;
 
-    // 📥 Extract query params
-    const { month, year } = req.query;
-    const data = await getMonthlySummary(userId, month, year);
-    return sendSuccess(res, { statusCode: 200, data });
-  } catch (err) {
-    // ❌ Handle server errors
-    next(err);
-  }
-});
+      // 📥 Extract validated query parameters
+      const { month, year } = req.query;
+
+      // 📊 Fetch monthly summary data
+      const data = await getMonthlySummary(userId, month, year);
+
+      // ✅ Send standardized success response
+      return sendSuccess(res, { statusCode: 200, data });
+    } catch (err) {
+      // ❌ Handle unexpected server errors
+      next(err);
+    }
+  },
+);
 
 /**
  * ======================================================
@@ -53,18 +81,32 @@ router.get("/summary", authenticationToken, async (req, res, next) => {
  * - Group expenses by category
  * - Return total spent per category
  * - Default to current month if not provided
+ *
+ * Validation:
+ * - Query parameters are validated via validateCategorySummary middleware
  */
-router.get("/category-summary", authenticationToken, async (req, res, next) => {
-  try {
-    const userId = req.userId;
-    const { month, year } = req.query;
-    const data = await getCategorySummary(userId, month, year);
-    return sendSuccess(res, { statusCode: 200, data });
-  } catch (err) {
-    // ❌ Handle server errors
-    next(err);
-  }
-});
+router.get(
+  "/category-summary",
+  authenticationToken,
+  validateCategorySummary,
+  async (req, res, next) => {
+    try {
+      // 👤 Logged-in user ID
+      const userId = req.userId;
+
+      // 📥 Extract validated query parameters
+      const { month, year } = req.query;
+
+      // 📊 Fetch category summary
+      const data = await getCategorySummary(userId, month, year);
+
+      return sendSuccess(res, { statusCode: 200, data });
+    } catch (err) {
+      // ❌ Handle server errors
+      next(err);
+    }
+  },
+);
 
 /**
  * ======================================================
@@ -78,21 +120,32 @@ router.get("/category-summary", authenticationToken, async (req, res, next) => {
  * - Aggregate income & expense grouped by month
  * - Return full 12-month structure (even if no data)
  * - Default to current year if not provided
+ *
+ * Validation:
+ * - Year parameter validation handled by validateMonthlyTrend middleware
  */
-router.get("/monthly-trend", authenticationToken, async (req, res, next) => {
-  try {
-    // 👤 Logged-in user ID
-    const userId = req.userId;
+router.get(
+  "/monthly-trend",
+  authenticationToken,
+  validateMonthlyTrend,
+  async (req, res, next) => {
+    try {
+      // 👤 Logged-in user ID
+      const userId = req.userId;
 
-    // 📥 Extract query params
-    const { year } = req.query;
-    const data = await getMonthlyTrend(userId, year);
-    return sendSuccess(res, { statusCode: 200, data });
-  } catch (err) {
-    // ❌ Handle server errors
-    next(err);
-  }
-});
+      // 📥 Extract validated query parameters
+      const { year } = req.query;
+
+      // 📈 Fetch yearly trend data
+      const data = await getMonthlyTrend(userId, year);
+
+      return sendSuccess(res, { statusCode: 200, data });
+    } catch (err) {
+      // ❌ Handle server errors
+      next(err);
+    }
+  },
+);
 
 /**
  * ======================================================
@@ -103,8 +156,8 @@ router.get("/monthly-trend", authenticationToken, async (req, res, next) => {
  *
  * @description
  * This endpoint compares total Income and Expense between:
- *   1️⃣ Selected Month
- *   2️⃣ Previous Month
+ * - Selected Month
+ * - Previous Month
  *
  * If month/year are not provided in query params,
  * it defaults to the current system month and year.
@@ -115,21 +168,32 @@ router.get("/monthly-trend", authenticationToken, async (req, res, next) => {
  * - Fetch income & expense totals for both months
  * - Calculate percentage change
  * - Safely handle divide-by-zero cases
+ *
+ * Validation:
+ * - Query parameters validated via validateMonthComparison middleware
  */
-router.get("/month-comparison", authenticationToken, async (req, res, next) => {
-  try {
-    // 👤 Logged-in user ID
-    const userId = req.userId;
+router.get(
+  "/month-comparison",
+  authenticationToken,
+  validateMonthComparison,
+  async (req, res, next) => {
+    try {
+      // 👤 Logged-in user ID
+      const userId = req.userId;
 
-    // 📥 Extract query params
-    const { month, year } = req.query;
-    const data = await getMonthComparison(userId, month, year);
-    return sendSuccess(res, { statusCode: 200, data });
-  } catch (err) {
-    // ❌ Handle server errors
-    next(err);
-  }
-});
+      // 📥 Extract validated query parameters
+      const { month, year } = req.query;
+
+      // 📊 Fetch comparison data
+      const data = await getMonthComparison(userId, month, year);
+
+      return sendSuccess(res, { statusCode: 200, data });
+    } catch (err) {
+      // ❌ Handle server errors
+      next(err);
+    }
+  },
+);
 
 /**
  * ======================================================
@@ -153,17 +217,21 @@ router.get("/month-comparison", authenticationToken, async (req, res, next) => {
  * - baseUrl is generated at controller level (request-aware)
  * - baseUrl is passed to service layer for attachment URL construction
  * - Keeps service reusable while allowing dynamic URL generation
+ *
+ * Validation:
+ * - take parameter validated via validateRecentTransactions middleware
  */
 router.get(
   "/recent-transactions",
   authenticationToken,
+  validateRecentTransactions,
   async (req, res, next) => {
     try {
       // 🔐 Extract user ID from JWT middleware
       const userId = req.userId;
 
       // 📌 Number of recent transactions to fetch (default: 5)
-      // parseInt ensures numeric value from query string
+      // Ensures numeric value from query string
       const take = Number.isInteger(Number(req.query.take))
         ? Number(req.query.take)
         : 5;

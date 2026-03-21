@@ -5,6 +5,10 @@ const express = require("express");
 const router = express.Router();
 const jwt = require("jsonwebtoken"); // 🔑 For generating JWT tokens
 const { sendSuccess } = require("../utils/responseHelper"); // 📤 Standard API responses
+const {
+  validateRegister,
+  validateLogin,
+} = require("../validators/auth.validator"); // ✅ Request validators for register & login
 const { registerUser, loginUser } = require("../services/auth.service"); // 👤 User auth services
 
 /**
@@ -16,35 +20,27 @@ const { registerUser, loginUser } = require("../services/auth.service"); // 👤
  * @access  Public
  *
  * Flow:
- * 1. Validate input fields
- * 2. Register user via service (checks existence, hashes password, inserts)
- * 3. Send success response
- * 4. Pass errors to global error handler
+ * - Request validation handled by validator middleware
+ * - Register user via service (checks existence, hashes password, inserts)
+ * - Send success response
+ * - Pass errors to global error handler
  */
-router.post("/register", async (req, res, next) => {
+router.post("/register", validateRegister, async (req, res, next) => {
   try {
     // 📥 Extract request body
     const { name, email, password, mobileNo } = req.body;
 
-    // 1️⃣ Validate required fields
-    if (!name || !email || !password || !mobileNo) {
-      return next({
-        statusCode: 422, // Unprocessable Entity
-        message: "All fields are required",
-      });
-    }
-
-    // 2️⃣ Register the user via service
+    // 👤 Register the user via service
     const userData = await registerUser({ name, email, password, mobileNo });
 
-    // 3️⃣ Send success response
+    // 📤 Send success response
     return sendSuccess(res, {
       statusCode: 201, // Created
       message: "User registered successfully",
       data: userData,
     });
   } catch (err) {
-    // Pass unexpected errors to global handler
+    // ❌ Pass unexpected errors to global handler
     next(err);
   }
 });
@@ -54,49 +50,41 @@ router.post("/register", async (req, res, next) => {
  * 🔐 USER LOGIN
  * ======================================================
  * @route   POST /login
- * @desc    Authenticate user and return JWT
+ * @desc    Authenticate user and return JWT token
  * @access  Public
  *
  * Flow:
- * 1. Validate credentials
- * 2. Authenticate user via service (verify existence and password)
- * 3. Generate JWT token
- * 4. Send success response
+ * - Request validation handled by validator middleware
+ * - Authenticate user via service (verify existence and password)
+ * - Generate JWT token
+ * - Send success response
  */
-router.post("/login", async (req, res, next) => {
+router.post("/login", validateLogin, async (req, res, next) => {
   try {
     // 📥 Extract credentials
     const { email, password } = req.body;
 
-    // 1️⃣ Validate request body
-    if (!email || !password) {
-      return next({
-        statusCode: 422,
-        message: "All fields are required",
-      });
-    }
-
-    // 2️⃣ Authenticate user via service
+    // 🔐 Authenticate user via service
     const user = await loginUser(email, password);
 
-    // 3️⃣ Generate JWT token
+    // 🔑 Generate JWT token
     const token = jwt.sign(
-      { userId: user.userId }, // Payload
+      { userId: user.userId }, // Token payload
       process.env.JWT_SECRET, // Secret key
-      { expiresIn: process.env.JWT_EXPIRES_IN }, // Expiry time
+      { expiresIn: process.env.JWT_EXPIRES_IN }, // Token expiry
     );
 
-    // 4️⃣ Send success response
+    // 📤 Send success response
     return sendSuccess(res, {
       statusCode: 200,
-      message: "User login successfully",
+      message: "User logged in successfully",
       data: {
         token,
         ...user,
       },
     });
   } catch (err) {
-    // Pass unexpected errors to global handler
+    // ❌ Pass unexpected errors to global error handler
     next(err);
   }
 });

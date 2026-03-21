@@ -2,12 +2,25 @@
 // 📦 Import required modules
 // =======================================
 const express = require("express");
+const cors = require("cors"); // ✅ ADDED: CORS middleware to allow frontend requests
 require("dotenv").config(); // Loads .env variables into process.env
 
 // =======================================
 // 🚀 Initialize Express app
 // =======================================
 const app = express();
+
+// =======================================
+// 🌐 CORS Configuration (IMPORTANT)
+// =======================================
+// Allows frontend (React/Vite) to communicate with backend
+
+app.use(
+  cors({
+    origin: "http://localhost:5173", // ✅ Frontend URL (Vite default)
+    credentials: true,
+  }),
+);
 
 // ⚡ Middleware to parse JSON request bodies
 // Required to access req.body in POST/PUT requests

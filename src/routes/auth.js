@@ -9,6 +9,7 @@ const {
   validateRegister,
   validateLogin,
 } = require("../validators/auth.validator"); // ✅ Request validators for register & login
+const asyncHandler = require("../utils/asyncHandler"); // 🔁 Handles async errors (removes try-catch)
 const { registerUser, loginUser } = require("../services/auth.service"); // 👤 User auth services
 
 /**
@@ -25,8 +26,10 @@ const { registerUser, loginUser } = require("../services/auth.service"); // 👤
  * - Send success response
  * - Pass errors to global error handler
  */
-router.post("/register", validateRegister, async (req, res, next) => {
-  try {
+router.post(
+  "/register",
+  validateRegister,
+  asyncHandler(async (req, res) => {
     // 📥 Extract request body
     const { name, email, password, mobileNo } = req.body;
 
@@ -39,11 +42,8 @@ router.post("/register", validateRegister, async (req, res, next) => {
       message: "User registered successfully",
       data: userData,
     });
-  } catch (err) {
-    // ❌ Pass unexpected errors to global handler
-    next(err);
-  }
-});
+  }),
+);
 
 /**
  * ======================================================
@@ -59,8 +59,10 @@ router.post("/register", validateRegister, async (req, res, next) => {
  * - Generate JWT token
  * - Send success response
  */
-router.post("/login", validateLogin, async (req, res, next) => {
-  try {
+router.post(
+  "/login",
+  validateLogin,
+  asyncHandler(async (req, res) => {
     // 📥 Extract credentials
     const { email, password } = req.body;
 
@@ -83,11 +85,8 @@ router.post("/login", validateLogin, async (req, res, next) => {
         ...user,
       },
     });
-  } catch (err) {
-    // ❌ Pass unexpected errors to global error handler
-    next(err);
-  }
-});
+  }),
+);
 
 // =======================================
 // 📤 Export Router

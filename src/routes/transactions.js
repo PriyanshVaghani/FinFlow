@@ -15,6 +15,8 @@ const {
   validateUpdateRecurringTransaction,
 } = require("../validators/transaction.validator");
 
+const asyncHandler = require("../utils/asyncHandler"); // 🔁 Handles async errors (removes try-catch)
+
 const {
   fetchTransactions,
   addTransaction,
@@ -71,8 +73,10 @@ const { sendSuccess, sendError } = require("../utils/responseHelper"); // 📦 U
  * - Delegate filtering, sorting, and pagination to service layer
  * - Return pagination metadata (totalCount, hasMore)
  */
-router.get("/", authenticationToken, async (req, res, next) => {
-  try {
+router.get(
+  "/",
+  authenticationToken,
+  asyncHandler(async (req, res, next) => {
     // 👤 Authenticated user ID
     const userId = req.userId;
 
@@ -269,12 +273,8 @@ router.get("/", authenticationToken, async (req, res, next) => {
       totalCount: result.total,
       hasMore: skip + take < result.total,
     });
-  } catch (err) {
-    // Catch unexpected database/runtime errors.
-    // Standardized error response keeps API consistent.
-    next(err);
-  }
-});
+  }),
+);
 
 /**
  * ======================================================
@@ -329,28 +329,23 @@ router.post(
   /**
    * 🧠 MAIN CONTROLLER LOGIC
    */
-  async (req, res, next) => {
-    try {
-      // 🔐 Logged-in user ID (set by authenticationToken middleware)
-      const userId = req.userId;
+  asyncHandler(async (req, res) => {
+    // 🔐 Logged-in user ID (set by authenticationToken middleware)
+    const userId = req.userId;
 
-      // 📥 Extract form fields (sent as multipart/form-data text fields)
-      const { categoryId, amount, note, trnDate } = req.body;
+    // 📥 Extract form fields (sent as multipart/form-data text fields)
+    const { categoryId, amount, note, trnDate } = req.body;
 
-      await addTransaction(
-        userId,
-        { categoryId, amount, note, trnDate },
-        req.files,
-      );
-      return sendSuccess(res, {
-        statusCode: 201,
-        message: "Transaction added successfully",
-      });
-    } catch (err) {
-      // service already cleaned up attachments on error
-      return next(err);
-    }
-  },
+    await addTransaction(
+      userId,
+      { categoryId, amount, note, trnDate },
+      req.files,
+    );
+    return sendSuccess(res, {
+      statusCode: 201,
+      message: "Transaction added successfully",
+    });
+  }),
 );
 
 /**
@@ -418,43 +413,39 @@ router.put(
    * - Optional: add new attachments, remove by attachment IDs
    * ==========================================
    */
-  async (req, res, next) => {
-    try {
-      // 👤 Extract authenticated user ID
-      const userId = req.userId;
+  asyncHandler(async (req, res) => {
+    // 👤 Extract authenticated user ID
+    const userId = req.userId;
 
-      // 📥 Transaction ID from query (required)
-      const { trnId } = req.query;
+    // 📥 Transaction ID from query (required)
+    const { trnId } = req.query;
 
-      // 📥 Optional transaction fields (send only what you want to update)
-      const {
-        categoryId,
-        amount,
-        note,
-        trnDate,
-        deleteAttachmentIds: rawDeleteIds,
-      } = req.body;
+    // 📥 Optional transaction fields (send only what you want to update)
+    const {
+      categoryId,
+      amount,
+      note,
+      trnDate,
+      deleteAttachmentIds: rawDeleteIds,
+    } = req.body;
 
-      const deleteAttachmentIds = Array.isArray(rawDeleteIds)
-        ? rawDeleteIds
-        : rawDeleteIds != null
-          ? [rawDeleteIds]
-          : [];
+    const deleteAttachmentIds = Array.isArray(rawDeleteIds)
+      ? rawDeleteIds
+      : rawDeleteIds != null
+        ? [rawDeleteIds]
+        : [];
 
-      await updateTransaction(
-        userId,
-        trnId,
-        { categoryId, amount, note, trnDate, deleteAttachmentIds },
-        req.files,
-      );
-      return sendSuccess(res, {
-        statusCode: 200,
-        message: "Transaction updated successfully",
-      });
-    } catch (err) {
-      next(err);
-    }
-  },
+    await updateTransaction(
+      userId,
+      trnId,
+      { categoryId, amount, note, trnDate, deleteAttachmentIds },
+      req.files,
+    );
+    return sendSuccess(res, {
+      statusCode: 200,
+      message: "Transaction updated successfully",
+    });
+  }),
 );
 
 /**
@@ -474,23 +465,19 @@ router.delete(
   "/delete",
   authenticationToken,
   validateDeleteTransaction,
-  async (req, res, next) => {
-    try {
-      // 👤 Logged-in user ID
-      const userId = req.userId;
+  asyncHandler(async (req, res) => {
+    // 👤 Logged-in user ID
+    const userId = req.userId;
 
-      // 📥 Transaction ID from query
-      const { trnId } = req.query;
+    // 📥 Transaction ID from query
+    const { trnId } = req.query;
 
-      await deleteTransaction(userId, trnId);
-      return sendSuccess(res, {
-        statusCode: 200,
-        message: "Transaction deleted successfully",
-      });
-    } catch (err) {
-      next(err);
-    }
-  },
+    await deleteTransaction(userId, trnId);
+    return sendSuccess(res, {
+      statusCode: 200,
+      message: "Transaction deleted successfully",
+    });
+  }),
 );
 
 /**
@@ -506,8 +493,10 @@ router.delete(
  * - Join category details (name, type)
  * - Return sorted by latest created
  */
-router.get("/recurring", authenticationToken, async (req, res, next) => {
-  try {
+router.get(
+  "/recurring",
+  authenticationToken,
+  asyncHandler(async (req, res) => {
     // 👤 Logged-in user ID
     const userId = req.userId;
 
@@ -516,11 +505,8 @@ router.get("/recurring", authenticationToken, async (req, res, next) => {
       statusCode: 200,
       data: rows,
     });
-  } catch (err) {
-    // ❌ Handle server errors
-    return next(err);
-  }
-});
+  }),
+);
 
 /**
  * ======================================================
@@ -539,32 +525,27 @@ router.post(
   "/recurring/add",
   authenticationToken,
   validateAddRecurringTransaction,
-  async (req, res, next) => {
-    try {
-      // 👤 Logged-in user ID
-      const userId = req.userId;
+  asyncHandler(async (req, res) => {
+    // 👤 Logged-in user ID
+    const userId = req.userId;
 
-      // 📥 Extract request body
-      const { categoryId, amount, note, frequency, startDate, endDate } =
-        req.body;
+    // 📥 Extract request body
+    const { categoryId, amount, note, frequency, startDate, endDate } =
+      req.body;
 
-      await addRecurringTransaction(userId, {
-        categoryId,
-        amount,
-        note,
-        frequency,
-        startDate,
-        endDate,
-      });
-      return sendSuccess(res, {
-        statusCode: 201,
-        message: "Recurring expense added successfully",
-      });
-    } catch (err) {
-      // ❌ Handle unexpected server errors
-      next(err);
-    }
-  },
+    await addRecurringTransaction(userId, {
+      categoryId,
+      amount,
+      note,
+      frequency,
+      startDate,
+      endDate,
+    });
+    return sendSuccess(res, {
+      statusCode: 201,
+      message: "Recurring expense added successfully",
+    });
+  }),
 );
 
 /**
@@ -584,43 +565,38 @@ router.put(
   "/recurring/update",
   authenticationToken,
   validateUpdateRecurringTransaction,
-  async (req, res, next) => {
-    try {
-      // 👤 Logged-in user ID
-      const userId = req.userId;
+  asyncHandler(async (req, res) => {
+    // 👤 Logged-in user ID
+    const userId = req.userId;
 
-      // 📥 Recurring ID from query
-      const { recurringId } = req.query;
+    // 📥 Recurring ID from query
+    const { recurringId } = req.query;
 
-      // 📥 Request body fields
-      const {
-        categoryId,
-        amount,
-        note,
-        frequency,
-        startDate,
-        endDate,
-        isActive,
-      } = req.body;
+    // 📥 Request body fields
+    const {
+      categoryId,
+      amount,
+      note,
+      frequency,
+      startDate,
+      endDate,
+      isActive,
+    } = req.body;
 
-      await updateRecurringTransaction(userId, recurringId, {
-        categoryId,
-        amount,
-        note,
-        frequency,
-        startDate,
-        endDate,
-        isActive,
-      });
-      return sendSuccess(res, {
-        statusCode: 200,
-        message: "Recurring expense updated successfully",
-      });
-    } catch (err) {
-      // ❌ Handle server errors
-      next(err);
-    }
-  },
+    await updateRecurringTransaction(userId, recurringId, {
+      categoryId,
+      amount,
+      note,
+      frequency,
+      startDate,
+      endDate,
+      isActive,
+    });
+    return sendSuccess(res, {
+      statusCode: 200,
+      message: "Recurring expense updated successfully",
+    });
+  }),
 );
 
 // =======================================

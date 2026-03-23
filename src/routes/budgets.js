@@ -5,6 +5,7 @@ const express = require("express");
 const router = express.Router();
 const { sendSuccess } = require("../utils/responseHelper"); // 📤 Standard API response helpers
 const { authenticationToken } = require("../middleware/auth_middleware"); // 🔐 JWT authentication middleware
+const asyncHandler = require("../utils/asyncHandler"); // 🔁 Handles async errors (removes try-catch)
 
 // ✅ Budget request validators
 const {
@@ -45,27 +46,22 @@ router.get(
   "/",
   authenticationToken,
   validateGetBudgets,
-  async (req, res, next) => {
-    try {
-      // 📥 Extract month from query string
-      const { month } = req.query;
+  asyncHandler(async (req, res) => {
+    // 📥 Extract month from query string
+    const { month } = req.query;
 
-      // 👤 Logged-in user ID (provided by authentication middleware)
-      const userId = req.userId;
+    // 👤 Logged-in user ID (provided by authentication middleware)
+    const userId = req.userId;
 
-      // 📂 Fetch budgets via service
-      const rows = await getBudgets(userId, month);
+    // 📂 Fetch budgets via service
+    const rows = await getBudgets(userId, month);
 
-      // 📤 Return formatted success response
-      return sendSuccess(res, {
-        statusCode: 200,
-        data: rows,
-      });
-    } catch (err) {
-      // ❌ Forward unexpected errors to global handler
-      next(err);
-    }
-  },
+    // 📤 Return formatted success response
+    return sendSuccess(res, {
+      statusCode: 200,
+      data: rows,
+    });
+  }),
 );
 
 /**
@@ -91,32 +87,19 @@ router.post(
   "/add",
   authenticationToken,
   validateAddBudget,
-  async (req, res, next) => {
-    try {
-      const { categoryId, month, amount } = req.body;
-      const userId = req.userId; // 👤 Extracted from JWT
+  asyncHandler(async (req, res) => {
+    const { categoryId, month, amount } = req.body;
+    const userId = req.userId; // 👤 Extracted from JWT
 
-      // 📂 Add budget via service
-      const data = await addBudget(userId, categoryId, month, amount);
+    // 📂 Add budget via service
+    const data = await addBudget(userId, categoryId, month, amount);
 
-      return sendSuccess(res, {
-        statusCode: 201,
-        message: "Budget created successfully",
-        data,
-      });
-    } catch (err) {
-      // ⚠️ Handle duplicate budget entry
-      if (err.code === "ER_DUP_ENTRY") {
-        return next({
-          statusCode: 409,
-          message: "A budget already exists for this category and month",
-        });
-      }
-
-      // ❌ Forward unexpected errors
-      next(err);
-    }
-  },
+    return sendSuccess(res, {
+      statusCode: 201,
+      message: "Budget created successfully",
+      data,
+    });
+  }),
 );
 
 /**
@@ -136,24 +119,19 @@ router.put(
   "/update",
   authenticationToken,
   validateUpdateBudget,
-  async (req, res, next) => {
-    try {
-      const { budgetId } = req.query;
-      const userId = req.userId;
-      const { categoryId, month, amount } = req.body;
+  asyncHandler(async (req, res) => {
+    const { budgetId } = req.query;
+    const userId = req.userId;
+    const { categoryId, month, amount } = req.body;
 
-      // 📂 Update budget via service
-      await updateBudget(userId, budgetId, { categoryId, month, amount });
+    // 📂 Update budget via service
+    await updateBudget(userId, budgetId, { categoryId, month, amount });
 
-      return sendSuccess(res, {
-        statusCode: 200,
-        message: "Budget updated successfully",
-      });
-    } catch (err) {
-      // ❌ Forward unexpected errors
-      next(err);
-    }
-  },
+    return sendSuccess(res, {
+      statusCode: 200,
+      message: "Budget updated successfully",
+    });
+  }),
 );
 
 /**
@@ -172,23 +150,18 @@ router.delete(
   "/delete",
   authenticationToken,
   validateDeleteBudget,
-  async (req, res, next) => {
-    try {
-      const { budgetId } = req.query;
-      const userId = req.userId;
+  asyncHandler(async (req, res) => {
+    const { budgetId } = req.query;
+    const userId = req.userId;
 
-      // 📂 Delete budget via service
-      await deleteBudget(userId, budgetId);
+    // 📂 Delete budget via service
+    await deleteBudget(userId, budgetId);
 
-      return sendSuccess(res, {
-        statusCode: 200,
-        message: "Budget deleted successfully",
-      });
-    } catch (err) {
-      // ❌ Forward unexpected errors
-      next(err);
-    }
-  },
+    return sendSuccess(res, {
+      statusCode: 200,
+      message: "Budget deleted successfully",
+    });
+  }),
 );
 
 /**
@@ -213,25 +186,20 @@ router.get(
   "/analytics",
   authenticationToken,
   validateBudgetAnalytics,
-  async (req, res, next) => {
-    try {
-      // 📥 Extract month from query params
-      const { month } = req.query;
+  asyncHandler(async (req, res) => {
+    // 📥 Extract month from query params
+    const { month } = req.query;
 
-      // 👤 Logged-in user ID (provided by JWT middleware)
-      const userId = req.userId;
+    // 👤 Logged-in user ID (provided by JWT middleware)
+    const userId = req.userId;
 
-      const data = await getBudgetAnalytics(userId, month);
+    const data = await getBudgetAnalytics(userId, month);
 
-      return sendSuccess(res, {
-        statusCode: 200,
-        data,
-      });
-    } catch (err) {
-      // ❌ Forward unexpected errors to global handler
-      next(err);
-    }
-  },
+    return sendSuccess(res, {
+      statusCode: 200,
+      data,
+    });
+  }),
 );
 
 // =======================================

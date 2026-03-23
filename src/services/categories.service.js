@@ -94,7 +94,7 @@ const addCategory = async (name, type, userId) => {
     if (existing.length > 0) {
       throw {
         statusCode: 409,
-        message: "This category already exists as a default category",
+        message: "Category with this name and type already exists",
       };
     }
 

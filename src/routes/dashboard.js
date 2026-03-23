@@ -6,6 +6,7 @@ const router = express.Router();
 
 const { sendSuccess } = require("../utils/responseHelper"); // 📤 Standard API response helpers
 const { authenticationToken } = require("../middleware/auth_middleware"); // 🔐 JWT authentication middleware
+const asyncHandler = require("../utils/asyncHandler"); // 🔁 Handles async errors (removes try-catch)
 
 // 🛡️ Dashboard request validators
 // These middlewares validate query parameters before reaching controller logic
@@ -49,24 +50,19 @@ router.get(
   "/summary",
   authenticationToken,
   validateMonthlySummary,
-  async (req, res, next) => {
-    try {
-      // 👤 Logged-in user ID extracted from JWT middleware
-      const userId = req.userId;
+  asyncHandler(async (req, res) => {
+    // 👤 Logged-in user ID extracted from JWT middleware
+    const userId = req.userId;
 
-      // 📥 Extract validated query parameters
-      const { month, year } = req.query;
+    // 📥 Extract validated query parameters
+    const { month, year } = req.query;
 
-      // 📊 Fetch monthly summary data
-      const data = await getMonthlySummary(userId, month, year);
+    // 📊 Fetch monthly summary data
+    const data = await getMonthlySummary(userId, month, year);
 
-      // ✅ Send standardized success response
-      return sendSuccess(res, { statusCode: 200, data });
-    } catch (err) {
-      // ❌ Handle unexpected server errors
-      next(err);
-    }
-  },
+    // ✅ Send standardized success response
+    return sendSuccess(res, { statusCode: 200, data });
+  }),
 );
 
 /**
@@ -89,23 +85,18 @@ router.get(
   "/category-summary",
   authenticationToken,
   validateCategorySummary,
-  async (req, res, next) => {
-    try {
-      // 👤 Logged-in user ID
-      const userId = req.userId;
+  asyncHandler(async (req, res) => {
+    // 👤 Logged-in user ID
+    const userId = req.userId;
 
-      // 📥 Extract validated query parameters
-      const { month, year } = req.query;
+    // 📥 Extract validated query parameters
+    const { month, year } = req.query;
 
-      // 📊 Fetch category summary
-      const data = await getCategorySummary(userId, month, year);
+    // 📊 Fetch category summary
+    const data = await getCategorySummary(userId, month, year);
 
-      return sendSuccess(res, { statusCode: 200, data });
-    } catch (err) {
-      // ❌ Handle server errors
-      next(err);
-    }
-  },
+    return sendSuccess(res, { statusCode: 200, data });
+  }),
 );
 
 /**
@@ -128,23 +119,18 @@ router.get(
   "/monthly-trend",
   authenticationToken,
   validateMonthlyTrend,
-  async (req, res, next) => {
-    try {
-      // 👤 Logged-in user ID
-      const userId = req.userId;
+  asyncHandler(async (req, res) => {
+    // 👤 Logged-in user ID
+    const userId = req.userId;
 
-      // 📥 Extract validated query parameters
-      const { year } = req.query;
+    // 📥 Extract validated query parameters
+    const { year } = req.query;
 
-      // 📈 Fetch yearly trend data
-      const data = await getMonthlyTrend(userId, year);
+    // 📈 Fetch yearly trend data
+    const data = await getMonthlyTrend(userId, year);
 
-      return sendSuccess(res, { statusCode: 200, data });
-    } catch (err) {
-      // ❌ Handle server errors
-      next(err);
-    }
-  },
+    return sendSuccess(res, { statusCode: 200, data });
+  }),
 );
 
 /**
@@ -176,23 +162,18 @@ router.get(
   "/month-comparison",
   authenticationToken,
   validateMonthComparison,
-  async (req, res, next) => {
-    try {
-      // 👤 Logged-in user ID
-      const userId = req.userId;
+  asyncHandler(async (req, res) => {
+    // 👤 Logged-in user ID
+    const userId = req.userId;
 
-      // 📥 Extract validated query parameters
-      const { month, year } = req.query;
+    // 📥 Extract validated query parameters
+    const { month, year } = req.query;
 
-      // 📊 Fetch comparison data
-      const data = await getMonthComparison(userId, month, year);
+    // 📊 Fetch comparison data
+    const data = await getMonthComparison(userId, month, year);
 
-      return sendSuccess(res, { statusCode: 200, data });
-    } catch (err) {
-      // ❌ Handle server errors
-      next(err);
-    }
-  },
+    return sendSuccess(res, { statusCode: 200, data });
+  }),
 );
 
 /**
@@ -225,44 +206,39 @@ router.get(
   "/recent-transactions",
   authenticationToken,
   validateRecentTransactions,
-  async (req, res, next) => {
-    try {
-      // 🔐 Extract user ID from JWT middleware
-      const userId = req.userId;
+  asyncHandler(async (req, res) => {
+    // 🔐 Extract user ID from JWT middleware
+    const userId = req.userId;
 
-      // 📌 Number of recent transactions to fetch (default: 5)
-      // Ensures numeric value from query string
-      const take = Number.isInteger(Number(req.query.take))
-        ? Number(req.query.take)
-        : 5;
+    // 📌 Number of recent transactions to fetch (default: 5)
+    // Ensures numeric value from query string
+    const take = Number.isInteger(Number(req.query.take))
+      ? Number(req.query.take)
+      : 5;
 
-      // 🌐 Construct dynamic base URL from current request
-      // Example:
-      // http://localhost:5000
-      const baseUrl = `${req.protocol}://${req.get("host")}`;
+    // 🌐 Construct dynamic base URL from current request
+    // Example:
+    // http://localhost:5000
+    const baseUrl = `${req.protocol}://${req.get("host")}`;
 
-      /**
-       * 📦 Fetch latest transactions
-       *
-       * - Delegates DB + attachment formatting logic to service layer
-       * - offset is fixed to 0 (always latest entries)
-       * - baseUrl is passed so service can generate absolute file URLs
-       */
-      const transactions = await fetchTransactions(userId, {
-        limit: take,
-        offset: 0,
-        baseUrl,
-      });
+    /**
+     * 📦 Fetch latest transactions
+     *
+     * - Delegates DB + attachment formatting logic to service layer
+     * - offset is fixed to 0 (always latest entries)
+     * - baseUrl is passed so service can generate absolute file URLs
+     */
+    const transactions = await fetchTransactions(userId, {
+      limit: take,
+      offset: 0,
+      baseUrl,
+    });
 
-      // ✅ Send standardized success response
-      return sendSuccess(res, {
-        data: transactions,
-      });
-    } catch (err) {
-      // ❌ Handle server errors
-      next(err);
-    }
-  },
+    // ✅ Send standardized success response
+    return sendSuccess(res, {
+      data: transactions,
+    });
+  }),
 );
 
 // =======================================

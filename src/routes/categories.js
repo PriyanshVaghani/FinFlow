@@ -24,16 +24,64 @@ const {
 
 /**
  * ======================================================
+ * 📌 TAG: Category APIs
+ * ======================================================
+ */
+
+/**
+ * ======================================================
  * 📂 GET CATEGORIES
  * ======================================================
- * @route   GET /categories
+ * @route   GET /api/categories
  * @desc    Retrieve all categories by type (user + default)
- * @access  Private
- * @query   type
+ * @access  Private (JWT protected)
  *
- * Notes:
- * - Returns user-created categories
- * - Also returns default system categories (user_id IS NULL)
+ * Flow:
+ * - Validate query param (type) via middleware.
+ * - Fetch categories via service, which includes user-specific and default system categories.
+ * - Send success response with category data.
+ */
+/**
+ * @swagger
+ * /api/categories:
+ *   get:
+ *     summary: Get categories
+ *     description: Retrieve all categories (user + default) filtered by type
+ *     tags: [Categories]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: type
+ *         required: true
+ *         schema:
+ *           type: string
+ *           enum: [Income, Expense]
+ *           example: Expense
+ *         description: Filter categories by Income or Expense
+ *     responses:
+ *       200:
+ *         description: Categories fetched successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 isError:
+ *                   type: boolean
+ *                   example: false
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       category_id:
+ *                         type: integer
+ *                       name:
+ *                         type: string
+ *                       type:
+ *                         type: string
+ *                         enum: [Income, Expense]
  */
 router.get(
   "/",
@@ -59,13 +107,62 @@ router.get(
  * ======================================================
  * ➕ ADD CATEGORY
  * ======================================================
- * @route   POST /categories/add
+ * @route   POST /api/categories/add
  * @desc    Create a new category
- * @access  Private
+ * @access  Private (JWT protected)
  *
- * Rules:
- * - Only Income / Expense types allowed
- * - Prevents duplication of default categories
+ * Flow:
+ * - Validate request body (name, type) via middleware.
+ * - Add category via service, which prevents duplicates for the user.
+ * - Send success response with new category ID.
+ */
+/**
+ * @swagger
+ * /api/categories/add:
+ *   post:
+ *     summary: Create category
+ *     description: Add a new category (Income or Expense)
+ *     tags: [Categories]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - name
+ *               - type
+ *             properties:
+ *               name:
+ *                 type: string
+ *                 example: Food
+ *               type:
+ *                 type: string
+ *                 enum: [Income, Expense]
+ *                 example: Expense
+ *     responses:
+ *       201:
+ *         description: Category created successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 isError:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: Category created successfully
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     categoryId:
+ *                       type: integer
+ *       409:
+ *         description: Category already exists
  */
 router.post(
   "/add",
@@ -92,9 +189,57 @@ router.post(
  * ======================================================
  * ✏️ UPDATE CATEGORY
  * ======================================================
- * @route   PUT /categories/update
+ * @route   PUT /api/categories/update
  * @desc    Update category name
- * @access  Private
+ * @access  Private (JWT protected)
+ *
+ * Flow:
+ * - Validate query param (categoryId) and body (name) via middleware.
+ * - Update category via service, which verifies ownership.
+ * - Send success response.
+ */
+/**
+ * @swagger
+ * /api/categories/update:
+ *   put:
+ *     summary: Update category
+ *     description: Update category name
+ *     tags: [Categories]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: categoryId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: ID of the category to update
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - name
+ *             properties:
+ *               name:
+ *                 type: string
+ *                 example: Groceries
+ *     responses:
+ *       200:
+ *         description: Category updated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 isError:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: Category updated successfully
  */
 router.put(
   "/update",
@@ -121,10 +266,45 @@ router.put(
  * ======================================================
  * 🗑️ DELETE CATEGORY (SOFT DELETE)
  * ======================================================
- * @route   DELETE /categories/delete
+ * @route   DELETE /api/categories/delete
  * @desc    Delete category (soft delete)
- * @access  Private
- * @query   categoryId
+ * @access  Private (JWT protected)
+ *
+ * Flow:
+ * - Validate query param (categoryId) via middleware.
+ * - Soft delete category via service, which verifies ownership and sets `is_active` to false.
+ * - Send success response.
+ */
+/**
+ * @swagger
+ * /api/categories/delete:
+ *   delete:
+ *     summary: Delete category
+ *     description: Soft delete category by ID
+ *     tags: [Categories]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: categoryId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: ID of the category to delete
+ *     responses:
+ *       200:
+ *         description: Category deleted successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 isError:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: Category deleted successfully
  */
 router.delete(
   "/delete",
@@ -147,6 +327,6 @@ router.delete(
 );
 
 // =======================================
-// 📦 Export Router
+// 📤 Export Router
 // =======================================
 module.exports = router;

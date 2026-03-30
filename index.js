@@ -44,6 +44,12 @@ const reportRoutes = require("./src/routes/report");
 // Import global error handler
 const errorHandler = require("./src/middleware/errorHandler");
 
+const swaggerUi = require("swagger-ui-express");
+const swaggerSpec = require("./src/config/swagger");
+
+// 📄 Swagger Docs Route
+app.use("/api/swagger", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+
 app.use("/api/auth", authRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/categories", categoriesRoutes);

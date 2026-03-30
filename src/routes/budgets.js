@@ -26,21 +26,68 @@ const {
 
 /**
  * ======================================================
+ * 📌 TAG: Budget APIs
+ * ======================================================
+ */
+
+/**
+ * ======================================================
  * 📥 GET /budgets
  * ======================================================
- * @route   GET /budgets?month=YYYY-MM
- * @desc    Fetch budgets for a specific month along with
- *          calculated spent amount per category
+ * @route   GET /api/budgets
+ * @desc    Fetch budgets for a specific month along with calculated spent amount per category
  * @access  Private (JWT protected)
  *
- * Query Params:
- * - month (required) → Format: YYYY-MM (Example: 2026-02)
- *
- * Responsibilities:
- * - Validate month input (handled by validator middleware)
- * - Fetch budgets belonging to the logged-in user
- * - Calculate total spent amount per category
- * - Return structured response
+ * Flow:
+ * - Validate month input via middleware.
+ * - Fetch budgets for the logged-in user via service.
+ * - Service calculates total spent amount per category.
+ * - Send success response with budget data.
+ */
+/**
+ * @swagger
+ * /api/budgets:
+ *   get:
+ *     summary: Get budgets by month
+ *     description: Fetch all budgets for a specific month with spent amount
+ *     tags: [Budgets]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: month
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: "Month to fetch budgets for (YYYY-MM)"
+ *     responses:
+ *       200:
+ *         description: Budgets fetched successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 isError:
+ *                   type: boolean
+ *                   example: false
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       budget_id:
+ *                         type: integer
+ *                       month:
+ *                         type: string
+ *                       budgetAmount:
+ *                         type: number
+ *                       category_id:
+ *                         type: integer
+ *                       categoryName:
+ *                         type: string
+ *                       spentAmount:
+ *                         type: number
  */
 router.get(
   "/",
@@ -68,20 +115,65 @@ router.get(
  * ======================================================
  * ➕ POST /budgets/add
  * ======================================================
- * @route   POST /budgets/add
+ * @route   POST /api/budgets/add
  * @desc    Create a new monthly budget
  * @access  Private (JWT protected)
  *
- * Body:
- * - categoryId (required)
- * - month (YYYY-MM format, required)
- * - amount (positive number, required)
- *
- * Responsibilities:
- * - Validate inputs (handled by validator middleware)
- * - Ensure category is a valid Expense type
- * - Prevent duplicate budgets
- * - Insert new budget record
+ * Flow:
+ * - Validate request body (categoryId, month, amount) via middleware.
+ * - Add budget via service, which ensures category is a valid expense type and prevents duplicates.
+ * - Send success response with new budget ID.
+ */
+/**
+ * @swagger
+ * /api/budgets/add:
+ *   post:
+ *     summary: Create new budget
+ *     description: Add a new monthly budget for a category
+ *     tags: [Budgets]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - categoryId
+ *               - month
+ *               - amount
+ *             properties:
+ *               categoryId:
+ *                 type: integer
+ *                 example: 1
+ *               month:
+ *                 type: string
+ *                 example: 2026-02
+ *               amount:
+ *                 type: number
+ *                 example: 5000
+ *     responses:
+ *       201:
+ *         description: Budget created successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 isError:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: Budget created successfully
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     budgetId:
+ *                       type: integer
+ *       409:
+ *         description: Budget already exists
  */
 router.post(
   "/add",
@@ -106,14 +198,61 @@ router.post(
  * ======================================================
  * ✏️ PUT /budgets/update
  * ======================================================
- * @route   PUT /budgets/update?budgetId=ID
+ * @route   PUT /api/budgets/update
  * @desc    Update an existing budget (Partial update supported)
  * @access  Private (JWT protected)
  *
- * Responsibilities:
- * - Validate budget ownership
- * - Allow partial updates
- * - Dynamically construct update query
+ * Flow:
+ * - Validate query param (budgetId) and optional body fields via middleware.
+ * - Update budget via service, which verifies ownership and performs a partial update.
+ * - Send success response.
+ */
+/**
+ * @swagger
+ * /api/budgets/update:
+ *   put:
+ *     summary: Update budget
+ *     description: Update an existing budget (partial update supported)
+ *     tags: [Budgets]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: budgetId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: ID of the budget to update
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               categoryId:
+ *                 type: integer
+ *                 example: 2
+ *               month:
+ *                 type: string
+ *                 example: 2026-03
+ *               amount:
+ *                 type: number
+ *                 example: 6000
+ *     responses:
+ *       200:
+ *         description: Budget updated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 isError:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: Budget updated successfully
  */
 router.put(
   "/update",
@@ -138,13 +277,45 @@ router.put(
  * ======================================================
  * 🗑️ DELETE /budgets/delete
  * ======================================================
- * @route   DELETE /budgets/delete?budgetId=ID
+ * @route   DELETE /api/budgets/delete
  * @desc    Delete a budget record
  * @access  Private (JWT protected)
  *
- * Responsibilities:
- * - Verify budget ownership
- * - Safely delete record
+ * Flow:
+ * - Validate query param (budgetId) via middleware.
+ * - Delete budget via service, which verifies ownership.
+ * - Send success response.
+ */
+/**
+ * @swagger
+ * /api/budgets/delete:
+ *   delete:
+ *     summary: Delete budget
+ *     description: Delete a budget by ID
+ *     tags: [Budgets]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: budgetId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *         description: ID of the budget to delete
+ *     responses:
+ *       200:
+ *         description: Budget deleted successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 isError:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: Budget deleted successfully
  */
 router.delete(
   "/delete",
@@ -168,19 +339,85 @@ router.delete(
  * ======================================================
  * 📊 GET /analytics
  * ======================================================
- * @route   GET /analytics
+ * @route   GET /api/budgets/analytics
  * @desc    Fetch monthly budget analytics for a specific month
- * @access  Private
+ * @access  Private (JWT protected)
  *
- * Query Params:
- * - month (required) → Format: YYYY-MM
- *
- * Responsibilities:
- * - Validate month format
- * - Fetch budget vs spending per category
- * - Calculate totals and percentages
- * - Identify over-budget categories
- * - Return structured analytics response
+ * Flow:
+ * - Validate query param (month) via middleware.
+ * - Fetch analytics data via service, which calculates budget vs. spending, totals, and percentages.
+ * - Send success response with structured analytics data.
+ */
+/**
+ * @swagger
+ * /api/budgets/analytics:
+ *   get:
+ *     summary: Budget analytics
+ *     description: Get monthly analytics (budget vs spending)
+ *     tags: [Budgets]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: month
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: "Month to fetch analytics for (YYYY-MM)"
+ *     responses:
+ *       200:
+ *         description: Analytics fetched successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 isError:
+ *                   type: boolean
+ *                   example: false
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     month:
+ *                       type: string
+ *                     summary:
+ *                       type: object
+ *                       properties:
+ *                         totalBudgetAllocated:
+ *                           type: number
+ *                         totalSpent:
+ *                           type: number
+ *                         totalRemaining:
+ *                           type: number
+ *                         overallPercentageUsed:
+ *                           type: number
+ *                         overBudgetCategoriesCount:
+ *                           type: integer
+ *                     categories:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           budgetId:
+ *                             type: integer
+ *                           categoryId:
+ *                             type: integer
+ *                           categoryName:
+ *                             type: string
+ *                           budgetAmount:
+ *                             type: number
+ *                           spentAmount:
+ *                             type: number
+ *                           remainingAmount:
+ *                             type: number
+ *                           percentageUsed:
+ *                             type: number
+ *                           isOverBudget:
+ *                             type: boolean
+ *                           overAmount:
+ *                             type: number
+ *                           status:
+ *                             type: string
  */
 router.get(
   "/analytics",
@@ -203,6 +440,6 @@ router.get(
 );
 
 // =======================================
-// 📦 Export Router
+// 📤 Export Router
 // =======================================
 module.exports = router;

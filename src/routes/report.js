@@ -12,10 +12,25 @@ const { exportTransactions } = require("../services/report.service");
 
 /**
  * ======================================================
+ * 📌 TAG: Report APIs
+ * ======================================================
+ */
+
+/**
+ * ======================================================
  * 📤 EXPORT TRANSACTIONS REPORT
  * ======================================================
- * @route   GET /report/export
- * @access  Private (JWT required)
+ * @route   GET /api/report/export
+ * @access  Private (JWT protected)
+ *
+ * Query Params (optional):
+ * - startDate (YYYY-MM-DD)
+ * - endDate (YYYY-MM-DD)
+ * - categoryIds (comma-separated string)
+ * - type ('Income' or 'Expense')
+ * - minAmount
+ * - maxAmount
+ * - search
  *
  * Controller Responsibility:
  * - Extract query parameters
@@ -27,6 +42,66 @@ const { exportTransactions } = require("../services/report.service");
  * 2️⃣ Extract filters from query params
  * 3️⃣ Service fetches transactions and converts them to CSV
  * 4️⃣ Controller sends CSV file as downloadable attachment
+ * Flow:
+ * - Authenticate user via JWT middleware.
+ * - Extract optional filter parameters from the request query.
+ * - Generate a CSV string from filtered transactions via the report service.
+ * - Set response headers to prompt a file download.
+ * - Send the CSV data as the response body.
+ */
+/**
+ * @swagger
+ * /api/report/export:
+ *   get:
+ *     summary: Export transactions report (CSV)
+ *     description: Download filtered transactions as CSV file
+ *     tags: [Report]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: startDate
+ *         schema:
+ *           type: string
+ *         description: Start date (YYYY-MM-DD)
+ *       - in: query
+ *         name: endDate
+ *         schema:
+ *           type: string
+ *         description: End date (YYYY-MM-DD)
+ *       - in: query
+ *         name: categoryIds
+ *         schema:
+ *           type: string
+ *         description: Comma-separated list of category IDs
+ *       - in: query
+ *         name: type
+ *         schema:
+ *           type: string
+ *           enum: [Income, Expense]
+ *         description: Filter by Income or Expense
+ *       - in: query
+ *         name: minAmount
+ *         schema:
+ *           type: number
+ *         description: Minimum transaction amount
+ *       - in: query
+ *         name: maxAmou/nt
+ *         schema:
+ *           type: number
+ *         description: Maximum transaction amount
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         description: Search keyword
+ *     responses:
+ *       200:
+ *         description: CSV file downloaded successfully
+ *         content:
+ *           text/csv:
+ *             schema:
+ *               type: string
  */
 router.get(
   "/export",

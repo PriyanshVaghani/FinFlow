@@ -15,6 +15,9 @@ const {
   validateUpdateRecurringTransaction,
 } = require("../validators/transaction.validator");
 
+// 📅 Date validation utility
+const { isValidISODate } = require("../utils/validation");
+
 const asyncHandler = require("../utils/asyncHandler"); // 🔁 Handles async errors (removes try-catch)
 
 const {
@@ -37,9 +40,10 @@ const { sendSuccess, sendError } = require("../utils/responseHelper"); // 📦 U
  * ======================================================
  * 📥 GET /transactions
  * ======================================================
- * @route   GET /transactions
+ * @route   GET /api/transactions
  * @desc    Fetch paginated & filtered transactions of the logged-in user
  * @access  Private (JWT protected)
+ *
  *
  * Architecture Flow:
  * Controller (this file)
@@ -60,18 +64,154 @@ const { sendSuccess, sendError } = require("../utils/responseHelper"); // 📦 U
  * - minAmount
  * - maxAmount
  * - search (matches note or category name)
- *
- * Sorting Params:
- * - sortBy (amount | trn_date | categoryName)
- * - order (asc | desc)
- *
- * Responsibilities:
- * - Validate & extract pagination parameters
- * - Validate filtering inputs
- * - Validate sorting inputs
- * - Construct dynamic base URL from request
- * - Delegate filtering, sorting, and pagination to service layer
- * - Return pagination metadata (totalCount, hasMore)
+ * 
+ * Flow:
+ * - Validate and sanitize all filter, pagination, and sorting parameters from the request query.
+ * - Construct a dynamic base URL for attachment links.
+ * - Fetch transactions via service, passing all validated parameters and the base URL.
+ * - The service handles complex SQL generation for filtering and sorting.
+ * - Send success response with transaction data and pagination metadata (totalCount, hasMore).
+ */
+/**
+ * @swagger
+ * /api/transactions:
+ *   get:
+ *     summary: Get all transactions
+ *     description: Fetch paginated & filtered transactions of the logged-in user
+ *     tags: [Transactions]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: skip
+ *         schema:
+ *           type: integer
+ *         description: Number of records to skip
+ *       - in: query
+ *         name: take
+ *         schema:
+ *           type: integer
+ *         description: Number of records to return
+ *       - in: query
+ *         name: startDate
+ *         schema:
+ *           type: string
+ *         description: "Start date (YYYY-MM-DD)"
+ *       - in: query
+ *         name: endDate
+ *         schema:
+ *           type: string
+ *         description: "End date (YYYY-MM-DD)"
+ *       - in: query
+ *         name: categoryIds
+ *         schema:
+ *           type: array
+ *           items:
+ *             type: integer
+ *         description: Filter by one or more category IDs
+ *       - in: query
+ *         name: type
+ *         schema:
+ *           type: string
+ *           enum: [income, expense]
+ *         description: Filter by transaction type
+ *       - in: query
+ *         name: minAmount
+ *         schema:
+ *           type: number
+ *         description: Filter by minimum transaction amount
+ *       - in: query
+ *         name: maxAmount
+ *         schema:
+ *           type: number
+ *         description: Filter by maximum transaction amount
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         description: Search keyword for transaction notes or category names
+ *       - in: query
+ *         name: sortBy
+ *         schema:
+ *           type: string
+ *           enum: [amount, trn_date, categoryName]
+ *         description: Field to sort by
+ *       - in: query
+ *         name: order
+ *         schema:
+ *           type: string
+ *           enum: [asc, desc]
+ *         description: Sort order (ascending or descending)
+ *     responses:
+ *       200:
+ *         description: Transactions fetched successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 isError:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Data fetched successfully"
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       trnId:
+ *                         type: integer
+ *                       amount:
+ *                         type: number
+ *                       note:
+ *                         type: string
+ *                       trnDate:
+ *                         type: string
+ *                         format: date
+ *                       categoryId:
+ *                         type: integer
+ *                       categoryName:
+ *                         type: string
+ *                       type:
+ *                         type: string
+ *                         enum: [income, expense]
+ *                       attachments:
+ *                         type: array
+ *                         items:
+ *                           type: object
+ *                           properties:
+ *                             id:
+ *                               type: integer
+ *                             fileName:
+ *                               type: string
+ *                             filePath:
+ *                               type: string
+ *                             fileType:
+ *                               type: string
+ *                             fileSize:
+ *                               type: integer
+ *                             url:
+ *                               type: string
+ *                 skip:
+ *                   type: integer
+ *                   example: 0
+ *                 take:
+ *                   type: integer
+ *                   example: 10
+ *                 totalCount:
+ *                   type: integer
+ *                   example: 100
+ *                 hasMore:
+ *                   type: boolean
+ *                   example: true
+ *       400:
+ *         description: Invalid input for filters, sorting or pagination
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Internal Server Error
  */
 router.get(
   "/",
@@ -280,14 +420,69 @@ router.get(
  * ======================================================
  * 📤 POST /transactions/add
  * ======================================================
- * @route   POST /transactions/add
+ * @route   POST /api/transactions/add
  * @desc    Add a new transaction with optional attachments
  * @access  Private (JWT protected)
  *
- * Features:
- * - Atomic DB transaction
- * - Duplicate attachment detection
- * - File cleanup on failure
+ * Flow:
+ * - Handle file uploads via Multer middleware, which validates file size and type.
+ * - Validate text fields (categoryId, amount, trnDate) via middleware.
+ * - Add transaction via service, which manages the database transaction and file handling.
+ * - The service detects and discards duplicate file uploads for the same transaction.
+ * - Send success response.
+ */
+/**
+ * @swagger
+ * /api/transactions/add:
+ *   post:
+ *     summary: Add a new transaction
+ *     description: Add a new transaction with optional attachments
+ *     tags: [Transactions]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - categoryId
+ *               - amount
+ *               - trnDate
+ *             properties:
+ *               categoryId:
+ *                 type: integer
+ *                 example: 1
+ *               amount:
+ *                 type: number
+ *                 example: 500
+ *               note:
+ *                 type: string
+ *                 example: "Grocery shopping"
+ *               trnDate:
+ *                 type: string
+ *                 description: "Transaction date (YYYY-MM-DD)"
+ *               attachments:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                   format: binary
+ *                 description: Max 5 files (JPG, PNG, PDF), Max 5MB each
+ *     responses:
+ *       201:
+ *         description: Transaction added successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 isError:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: Transaction added successfully
  */
 router.post(
   "/add",
@@ -352,17 +547,72 @@ router.post(
  * ==========================================
  * ✏️ UPDATE TRANSACTION API
  * ==========================================
- * @route   PUT /transactions/update
+ * @route   PUT /api/transactions/update
  * @desc    Partially update a transaction and/or attachments
  * @access  Private (JWT protected)
  *
- * Optional body fields (send only what you want to update):
- * - categoryId, amount, note, trnDate
- * - deleteAttachmentIds: array of attachment IDs to remove (or single id)
- * - attachments: new files (multipart)
- *
- * At least one of: transaction field(s), deleteAttachmentIds, or new attachments required.
- * ==========================================
+ * Flow:
+ * - Handle new file uploads via Multer middleware.
+ * - Validate query param (trnId) and optional body fields via middleware.
+ * - Update transaction via service, which verifies ownership and performs a partial update.
+ * - The service can add new attachments and delete existing ones by ID in the same operation.
+ * - Send success response.
+ */
+/**
+ * @swagger
+ * /api/transactions/update:
+ *   put:
+ *     summary: Update transaction
+ *     description: Partially update a transaction and/or attachments
+ *     tags: [Transactions]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: trnId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     requestBody:
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               categoryId:
+ *                 type: integer
+ *               amount:
+ *                 type: number
+ *               note:
+ *                 type: string
+ *               trnDate:
+ *                 type: string
+ *                 description: "Transaction date (YYYY-MM-DD)"
+ *               deleteAttachmentIds:
+ *                 type: array
+ *                 items:
+ *                   type: integer
+ *                 description: Array of attachment IDs to delete
+ *               attachments:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                   format: binary
+ *                 description: New files to attach
+ *     responses:
+ *       200:
+ *         description: Transaction updated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 isError:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: Transaction updated successfully
  */
 router.put(
   "/update",
@@ -452,14 +702,45 @@ router.put(
  * ======================================================
  * 🗑️ DELETE TRANSACTION
  * ======================================================
- * @route   DELETE /transactions/delete
+ * @route   DELETE /api/transactions/delete
  * @desc    Delete a transaction and its attachments
  * @access  Private (JWT protected)
  *
- * Responsibilities:
- * - Delete transaction owned by logged-in user
- * - Remove related attachment files from disk
- * - Maintain DB consistency using transaction
+ * Flow:
+ * - Validate query param (trnId) via middleware.
+ * - Delete transaction via service, which verifies ownership.
+ * - The service also deletes all associated attachment records and their physical files from the disk.
+ * - Send success response.
+ */
+/**
+ * @swagger
+ * /api/transactions/delete:
+ *   delete:
+ *     summary: Delete a transaction
+ *     description: Delete a transaction and its attachments
+ *     tags: [Transactions]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: trnId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Transaction deleted successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 isError:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: Transaction deleted successfully
  */
 router.delete(
   "/delete",
@@ -484,14 +765,68 @@ router.delete(
  * ======================================================
  * 🔁 GET ALL RECURRING TRANSACTIONS (WITH CATEGORY)
  * ======================================================
- * @route   GET /transactions/recurring
+ * @route   GET /api/transactions/recurring
  * @desc    Fetch recurring transactions with category details
  * @access  Private (JWT protected)
  *
- * Responsibilities:
- * - Fetch all recurring transactions for logged-in user
- * - Join category details (name, type)
- * - Return sorted by latest created
+ * Flow:
+ * - Fetch all recurring transactions for the logged-in user via service.
+ * - The service joins category details to each recurring transaction.
+ * - Send success response with the list of recurring transactions.
+ */
+/**
+ * @swagger
+ * /api/transactions/recurring:
+ *   get:
+ *     summary: Get recurring transactions
+ *     description: Fetch recurring transactions with category details
+ *     tags: [Transactions]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Recurring transactions fetched successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 isError:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Data fetched successfully"
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       recurring_id:
+ *                         type: integer
+ *                       amount:
+ *                         type: number
+ *                       note:
+ *                         type: string
+ *                       frequency:
+ *                         type: string
+ *                         enum: [Daily, Weekly, Monthly, Yearly]
+ *                       start_date:
+ *                         type: string
+ *                         format: date
+ *                       end_date:
+ *                         type: string
+ *                         format: date
+ *                         nullable: true
+ *                       is_active:
+ *                         type: boolean
+ *                       category_id:
+ *                         type: integer
+ *                       categoryName:
+ *                         type: string
+ *                       type:
+ *                         type: string
+ *                         enum: [income, expense]
  */
 router.get(
   "/recurring",
@@ -512,14 +847,69 @@ router.get(
  * ======================================================
  * 🔁 ADD RECURRING TRANSACTION
  * ======================================================
- * @route   POST /transactions/recurring/add
+ * @route   POST /api/transactions/recurring/add
  * @desc    Create a recurring expense
  * @access  Private (JWT protected)
  *
- * Responsibilities:
- * - Validate required recurring expense fields
- * - Store recurring transaction details
- * - Support optional note and end date
+ * Flow:
+ * - Validate request body fields (categoryId, amount, frequency, etc.) via middleware.
+ * - Add recurring transaction via service.
+ * - Send success response.
+ */
+/**
+ * @swagger
+ * /api/transactions/recurring/add:
+ *   post:
+ *     summary: Add recurring transaction
+ *     description: Create a recurring expense
+ *     tags: [Transactions]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - categoryId
+ *               - amount
+ *               - frequency
+ *               - startDate
+ *             properties:
+ *               categoryId:
+ *                 type: integer
+ *                 example: 1
+ *               amount:
+ *                 type: number
+ *                 example: 1000
+ *               note:
+ *                 type: string
+ *                 example: "Netflix Subscription"
+ *               frequency:
+ *                 type: string
+ *                 enum: [Daily, Weekly, Monthly, Yearly]
+ *                 example: Monthly
+ *               startDate:
+ *                 type: string
+ *                 description: "Start date (YYYY-MM-DD)"
+ *               endDate:
+ *                 type: string
+ *                 description: "End date (YYYY-MM-DD), optional"
+ *     responses:
+ *       201:
+ *         description: Recurring expense added successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 isError:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: Recurring expense added successfully
  */
 router.post(
   "/recurring/add",
@@ -552,14 +942,67 @@ router.post(
  * ======================================================
  * 🔁 UPDATE RECURRING TRANSACTION (Details + Status)
  * ======================================================
- * @route   PUT /transactions/recurring/update
+ * @route   PUT /api/transactions/recurring/update
  * @desc    Update recurring expense details or status
  * @access  Private (JWT protected)
  *
- * Responsibilities:
- * - Allow partial updates (dynamic fields)
- * - Support status toggle (is_active)
- * - Ensure user ownership before update
+ * Flow:
+ * - Validate query param (recurringId) and optional body fields via middleware.
+ * - Update recurring transaction via service, which verifies ownership and performs a partial update.
+ * - Send success response.
+ */
+/**
+ * @swagger
+ * /api/transactions/recurring/update:
+ *   put:
+ *     summary: Update recurring transaction
+ *     description: Update recurring expense details or status
+ *     tags: [Transactions]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: recurringId
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               categoryId:
+ *                 type: integer
+ *               amount:
+ *                 type: number
+ *               note:
+ *                 type: string
+ *               frequency:
+ *                 type: string
+ *                 enum: [Daily, Weekly, Monthly, Yearly]
+ *               startDate:
+ *                 type: string
+ *                 description: "Start date (YYYY-MM-DD)"
+ *               endDate:
+ *                 type: string
+ *                 description: "End date (YYYY-MM-DD), optional"
+ *               isActive:
+ *                 type: boolean
+ *     responses:
+ *       200:
+ *         description: Recurring expense updated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 isError:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: Recurring expense updated successfully
  */
 router.put(
   "/recurring/update",

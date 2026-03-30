@@ -31,20 +31,70 @@ const { fetchTransactions } = require("../services/transaction.service");
 
 /**
  * ======================================================
+ * 📌 TAG: Dashboard APIs
+ * ======================================================
+ */
+
+/**
+ * ======================================================
  * 📊 MONTHLY SUMMARY (INCOME / EXPENSE / BALANCE)
  * ======================================================
- * @route   GET /summary
+ * @route   GET /api/dashboard/summary
  * @desc    Get total income, total expense and balance for selected month
  * @access  Private (JWT protected)
  *
- * Responsibilities:
- * - Calculate monthly income total
- * - Calculate monthly expense total
- * - Return net balance (income - expense)
- * - Default to current month if not provided
- *
- * Validation:
- * - Query parameters are validated via validateMonthlySummary middleware
+ * Flow:
+ * - Validate optional query params (month, year) via middleware.
+ * - Fetch monthly summary via service, which calculates income, expense, and balance.
+ * - Service defaults to the current month/year if not provided.
+ * - Send success response with summary data.
+ */
+/**
+ * @swagger
+ * /api/dashboard/summary:
+ *   get:
+ *     summary: Monthly summary
+ *     description: Get total income, expense and balance
+ *     tags: [Dashboard]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: month
+ *         schema:
+ *           type: integer
+ *         description: "Month to get summary for (1-12). Defaults to current month."
+ *       - in: query
+ *         name: year
+ *         schema:
+ *           type: integer
+ *         description: "Year to get summary for. Defaults to current year."
+ *     responses:
+ *       200:
+ *         description: Summary fetched successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 isError:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Data fetched successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     income:
+ *                       type: number
+ *                       example: 5000
+ *                     expense:
+ *                       type: number
+ *                       example: 2500
+ *                     balance:
+ *                       type: number
+ *                       example: 2500
  */
 router.get(
   "/summary",
@@ -69,17 +119,68 @@ router.get(
  * ======================================================
  * 📊 CATEGORY-WISE EXPENSE SUMMARY
  * ======================================================
- * @route   GET /category-summary
+ * @route   GET /api/dashboard/category-summary
  * @desc    Get expense totals grouped by category for selected month
  * @access  Private (JWT protected)
  *
- * Responsibilities:
- * - Group expenses by category
- * - Return total spent per category
- * - Default to current month if not provided
- *
- * Validation:
- * - Query parameters are validated via validateCategorySummary middleware
+ * Flow:
+ * - Validate optional query params (month, year) via middleware.
+ * - Fetch category summary via service, which groups expenses and calculates totals.
+ * - Service defaults to the current month/year if not provided.
+ * - Send success response with category data.
+ */
+/**
+ * @swagger
+ * /api/dashboard/category-summary:
+ *   get:
+ *     summary: Category-wise expense summary
+ *     description: Get expenses grouped by category
+ *     tags: [Dashboard]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: month
+ *         schema:
+ *           type: integer
+ *         description: "Month to get summary for (1-12). Defaults to current month."
+ *       - in: query
+ *         name: year
+ *         schema:
+ *           type: integer
+ *         description: "Year to get summary for. Defaults to current year."
+ *     responses:
+ *       200:
+ *         description: Category summary fetched successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 isError:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Data fetched successfully"
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       categoryId:
+ *                         type: integer
+ *                       categoryName:
+ *                         type: string
+ *                       total:
+ *                         type: number
+ *                       percentage:
+ *                         type: number
+ *                   example:
+ *                     - categoryId: 1
+ *                       categoryName: "Groceries"
+ *                       total: 500
+ *                       percentage: 45.5
  */
 router.get(
   "/category-summary",
@@ -103,17 +204,59 @@ router.get(
  * ======================================================
  * 📈 YEARLY MONTHLY TREND (INCOME vs EXPENSE)
  * ======================================================
- * @route   GET /monthly-trend
+ * @route   GET /api/dashboard/monthly-trend
  * @desc    Get month-wise income and expense summary for selected year
  * @access  Private (JWT protected)
  *
- * Responsibilities:
- * - Aggregate income & expense grouped by month
- * - Return full 12-month structure (even if no data)
- * - Default to current year if not provided
- *
- * Validation:
- * - Year parameter validation handled by validateMonthlyTrend middleware
+ * Flow:
+ * - Validate optional query param (year) via middleware.
+ * - Fetch monthly trend via service, which aggregates income/expense for all 12 months.
+ * - Service defaults to the current year if not provided.
+ * - Send success response with trend data.
+ */
+/**
+ * @swagger
+ * /api/dashboard/monthly-trend:
+ *   get:
+ *     summary: Monthly trend
+ *     description: Get income vs expense trend for a year
+ *     tags: [Dashboard]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: year
+ *         schema:
+ *           type: integer
+ *         description: "Year to get trend for. Defaults to current year."
+ *     responses:
+ *       200:
+ *         description: Trend fetched successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 isError:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Data fetched successfully"
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       month:
+ *                         type: string
+ *                         example: "January"
+ *                       income:
+ *                         type: number
+ *                         example: 5000
+ *                       expense:
+ *                         type: number
+ *                         example: 2500
  */
 router.get(
   "/monthly-trend",
@@ -137,26 +280,80 @@ router.get(
  * ======================================================
  * 📊 Month Comparison API (Current vs Previous Month)
  * ======================================================
- * @route   GET /month-comparison
+ * @route   GET /api/dashboard/month-comparison
  * @access  Private (JWT Protected)
  *
- * @description
- * This endpoint compares total Income and Expense between:
- * - Selected Month
- * - Previous Month
+ * @desc
+ * Compares total Income and Expense between a selected month and the previous one.
  *
- * If month/year are not provided in query params,
- * it defaults to the current system month and year.
- *
- * Responsibilities:
- * - Determine selected month & year
- * - Automatically calculate previous month (handles year transition)
- * - Fetch income & expense totals for both months
- * - Calculate percentage change
- * - Safely handle divide-by-zero cases
- *
- * Validation:
- * - Query parameters validated via validateMonthComparison middleware
+ * Flow:
+ * - Validate optional query params (month, year) via middleware.
+ * - Fetch comparison data via service, which calculates totals for both months and their percentage change.
+ * - Service defaults to the current month/year and handles year transitions automatically.
+ * - Send success response with comparison data.
+ */
+/**
+ * @swagger
+ * /api/dashboard/month-comparison:
+ *   get:
+ *     summary: Month comparison
+ *     description: Compare current month vs previous month income & expense
+ *     tags: [Dashboard]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: month
+ *         schema:
+ *           type: integer
+ *         description: "Month to compare (1-12). Defaults to current month."
+ *       - in: query
+ *         name: year
+ *         schema:
+ *           type: integer
+ *         description: "Year to compare. Defaults to current year."
+ *     responses:
+ *       200:
+ *         description: Comparison fetched successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 isError:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Data fetched successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     currentMonth:
+ *                       type: object
+ *                       properties:
+ *                         income:
+ *                           type: number
+ *                         expense:
+ *                           type: number
+ *                     previousMonth:
+ *                       type: object
+ *                       properties:
+ *                         income:
+ *                           type: number
+ *                         expense:
+ *                           type: number
+ *                     incomeChange:
+ *                       type: number
+ *                       description: "Percentage change in income"
+ *                     expenseChange:
+ *                       type: number
+ *                       description: "Percentage change in expense"
+ *                   example:
+ *                     currentMonth: { income: 5000, expense: 2500 }
+ *                     previousMonth: { income: 4000, expense: 3000 }
+ *                     incomeChange: 25
+ *                     expenseChange: -16.67
  */
 router.get(
   "/month-comparison",
@@ -180,27 +377,81 @@ router.get(
  * ======================================================
  * 📥 GET /recent-transactions
  * ======================================================
- * @route   GET /recent-transactions
+ * @route   GET /api/dashboard/recent-transactions
  * @desc    Fetch most recent transactions of the logged-in user
  * @access  Private (JWT protected)
  *
- * Query Params:
- * - take (optional) → Number of recent records to return (default: 5)
- *
- * Responsibilities:
- * - Extract authenticated user ID
- * - Construct base URL for attachment links
- * - Fetch latest transactions using service layer
- * - Return standardized success response
- *
- * Notes:
- * - Always fetches from offset 0 (latest records only)
- * - baseUrl is generated at controller level (request-aware)
- * - baseUrl is passed to service layer for attachment URL construction
- * - Keeps service reusable while allowing dynamic URL generation
- *
- * Validation:
- * - take parameter validated via validateRecentTransactions middleware
+ * Flow:
+ * - Validate optional query param (take) via middleware.
+ * - Construct a dynamic base URL for attachment links.
+ * - Fetch the latest transactions via service, passing the base URL for link generation.
+ * - Send success response with transaction data.
+ */
+/**
+ * @swagger
+ * /api/dashboard/recent-transactions:
+ *   get:
+ *     summary: Recent transactions
+ *     description: Get latest transactions of user
+ *     tags: [Dashboard]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: take
+ *         schema:
+ *           type: integer
+ *           example: 5
+ *         description: "Number of recent transactions to return. Defaults to 5."
+ *     responses:
+ *       200:
+ *         description: Transactions fetched successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 isError:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Data fetched successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     transactions:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           trnId:
+ *                             type: integer
+ *                           amount:
+ *                             type: number
+ *                           note:
+ *                             type: string
+ *                           trnDate:
+ *                             type: string
+ *                             format: date
+ *                           categoryId:
+ *                             type: integer
+ *                           categoryName:
+ *                             type: string
+ *                           type:
+ *                             type: string
+ *                             enum: [income, expense]
+ *                           attachments:
+ *                             type: array
+ *                             items:
+ *                               type: object
+ *                               properties:
+ *                                 id:
+ *                                   type: integer
+ *                                 url:
+ *                                   type: string
+ *                     total:
+ *                       type: integer
  */
 router.get(
   "/recent-transactions",

@@ -34,12 +34,12 @@ app.use(express.urlencoded({ extended: true }));
 // 🛣️ Import & Register Routes
 // =======================================
 // All authentication-related APIs will start with /api/auth
-const authRoutes = require("./src/routes/auth");
-const dashboardRoutes = require("./src/routes/dashboard");
-const categoriesRoutes = require("./src/routes/categories");
-const transactionsRoutes = require("./src/routes/transactions");
-const budgetsRoutes = require("./src/routes/budgets");
-const reportRoutes = require("./src/routes/report");
+const authRoutes = require("./src/routes/auth.routes");
+const dashboardRoutes = require("./src/routes/dashboard.routes");
+const categoriesRoutes = require("./src/routes/categories.routes");
+const transactionsRoutes = require("./src/routes/transactions.routes");
+const budgetsRoutes = require("./src/routes/budgets.routes");
+const reportRoutes = require("./src/routes/report.routes");
 
 // Import global error handler
 const errorHandler = require("./src/middleware/errorHandler");

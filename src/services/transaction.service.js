@@ -747,44 +747,40 @@ const addRecurringTransaction = async (
   userId,
   { categoryId, amount, note, frequency, startDate, endDate },
 ) => {
-  try {
-    /**
-     * 📊 SQL Query Explanation
-     *
-     * Tables Used:
-     * - recurring_transactions → Recurring transaction definitions
-     *
-     * INSERT Operation:
-     * - Creates new recurring transaction schedule
-     *
-     * Fields:
-     * - user_id: Owner of the recurring transaction
-     * - category_id: Associated category
-     * - amount, note: Transaction details
-     * - frequency: How often to repeat (daily/weekly/monthly)
-     * - start_date: When to begin
-     * - end_date: When to stop (NULL for indefinite)
-     */
-    await db.query(
-      `
-        INSERT INTO recurring_transactions
-        (user_id, category_id, amount, note, frequency, start_date, end_date)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `,
-      [
-        userId,
-        categoryId,
-        amount,
-        note || null,
-        frequency,
-        startDate,
-        endDate || null,
-      ],
-    );
-    return true;
-  } catch (err) {
-    throw err;
-  }
+  /**
+   * 📊 SQL Query Explanation
+   *
+   * Tables Used:
+   * - recurring_transactions → Recurring transaction definitions
+   *
+   * INSERT Operation:
+   * - Creates new recurring transaction schedule
+   *
+   * Fields:
+   * - user_id: Owner of the recurring transaction
+   * - category_id: Associated category
+   * - amount, note: Transaction details
+   * - frequency: How often to repeat (daily/weekly/monthly)
+   * - start_date: When to begin
+   * - end_date: When to stop (NULL for indefinite)
+   */
+  await db.query(
+    `
+      INSERT INTO recurring_transactions
+      (user_id, category_id, amount, note, frequency, start_date, end_date)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `,
+    [
+      userId,
+      categoryId,
+      amount,
+      note || null,
+      frequency,
+      startDate,
+      endDate || null,
+    ],
+  );
+  return true;
 };
 
 /**

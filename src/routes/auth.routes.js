@@ -10,7 +10,12 @@ const {
   validateLogin,
 } = require("../validators/auth.validator"); // ✅ Request validators for register & login
 const asyncHandler = require("../utils/asyncHandler"); // 🔁 Handles async errors (removes try-catch)
-const { registerUser, loginUser } = require("../services/auth.service"); // 👤 User auth services
+const {
+  registerUser,
+  loginUser,
+  logoutUser,
+} = require("../services/auth.service"); // 👤 User auth services
+const { authenticationToken } = require("../middleware/auth_middleware"); // 🔐 JWT authentication middleware
 
 /**
  * ======================================================
@@ -201,6 +206,63 @@ router.post(
         token,
         ...user,
       },
+    });
+  }),
+);
+
+/**
+ * ======================================================
+ * �🚪 USER LOGOUT
+ * ======================================================
+ * @route   POST /api/auth/logout
+ * @desc    Log out a user (instructs client to clear token)
+ * @access  Private (JWT protected)
+ *
+ * Flow:
+ * - Authenticate user via JWT middleware
+ * - Send success response instructing frontend to delete token
+ */
+/**
+ * @swagger
+ * /api/auth/logout:
+ *   post:
+ *     summary: User logout
+ *     description: Log out the current user (requires client to drop the token)
+ *     tags: [Auth]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Logout successful
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 isError:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: User logged out successfully
+ */
+router.post(
+  "/logout",
+  authenticationToken,
+  asyncHandler(async (req, res) => {
+    const authHeader = req.headers.authorization;
+    const token = authHeader.split(" ")[1];
+
+    // Decode the token to get its expiration time
+    const decoded = jwt.decode(token);
+    const expiresAt = new Date(decoded.exp * 1000);
+
+    // Add the token to the blacklist via service
+    await logoutUser(token, expiresAt);
+
+    return sendSuccess(res, {
+      statusCode: 200,
+      message: "User logged out successfully",
     });
   }),
 );

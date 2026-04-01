@@ -119,4 +119,24 @@ const loginUser = async (email, password) => {
   };
 };
 
-module.exports = { registerUser, loginUser };
+/**
+ * ======================================================
+ * 🚪 LOGOUT USER SERVICE
+ * ======================================================
+ * Adds the user's token to the blacklist to prevent reuse
+ */
+const logoutUser = async (token, expiresAt) => {
+  /**
+   * 📊 SQL Query Explanation
+   *
+   * Tables Used:
+   * - token_blacklist → Stores invalidated tokens
+   */
+  await db.query(
+    "INSERT INTO token_blacklist (token, expires_at) VALUES (?, ?)",
+    [token, expiresAt],
+  );
+  return true;
+};
+
+module.exports = { registerUser, loginUser, logoutUser };

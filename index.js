@@ -11,6 +11,11 @@ require("dotenv").config(); // Loads .env variables into process.env
 const app = express();
 
 // =======================================
+// �️ Rate Limiting Configuration
+// =======================================
+const rateLimit = require("express-rate-limit");
+
+// =======================================
 // 🌐 CORS Configuration (IMPORTANT)
 // =======================================
 // Allows frontend (React/Vite) to communicate with backend
@@ -29,6 +34,27 @@ app.use(express.json());
 // Middleware to parse application/x-www-form-urlencoded
 // Needed when data is sent from HTML forms
 app.use(express.urlencoded({ extended: true }));
+
+// Global API Rate Limiter (Applies to all /api routes)
+const globalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // Limit each IP to 100 requests per window
+  message: { isError: true, message: "Too many requests from this IP, please try again after 15 minutes" },
+  standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
+  legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+});
+
+// Stricter Rate Limiter for Authentication Routes
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 20, // Limit each IP to 20 auth requests per window
+  message: { isError: true, message: "Too many authentication attempts from this IP, please try again later" },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Apply global limiter to all /api routes
+app.use("/api", globalLimiter);
 
 // =======================================
 // 🛣️ Import & Register Routes
@@ -50,7 +76,8 @@ const swaggerSpec = require("./src/config/swagger");
 // 📄 Swagger Docs Route
 app.use("/api/swagger", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
-app.use("/api/auth", authRoutes);
+// Apply the stricter auth limiter specifically to the auth routes
+app.use("/api/auth", authLimiter, authRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/categories", categoriesRoutes);
 app.use("/api/transactions", transactionsRoutes);

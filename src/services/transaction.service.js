@@ -5,6 +5,7 @@
 const db = require("../config/db");
 const fs = require("fs");
 const crypto = require("crypto");
+const { createNotification } = require("./notification.service");
 
 // 🔎 Builds dynamic SQL WHERE conditions for transaction filtering
 const { buildTransactionFilters } = require("../utils/transaction.filters");
@@ -255,6 +256,62 @@ const getFileHash = (filePath) => {
 };
 
 /**
+ * 🔔 HELPER: Check and Notify Budget Exceeded
+ * Reusable logic used after adding or updating a transaction to warn the user.
+ */
+const checkAndNotifyBudgetExceeded = async (
+  userId,
+  trnId,
+  conn,
+  isUpdate = false,
+) => {
+  try {
+    // 1️⃣ Fetch the transaction details to ensure we use the final category and date
+    const [[trn]] = await conn.query(
+      `SELECT category_id, DATE_FORMAT(trn_date, '%Y-%m') AS monthStr FROM transactions WHERE trn_id = ?`,
+      [trnId],
+    );
+
+    if (!trn) return;
+
+    const { category_id, monthStr } = trn;
+
+    // 2️⃣ Check if a budget exists for this category and month
+    const [[budget]] = await conn.query(
+      `SELECT amount FROM budgets WHERE user_id = ? AND category_id = ? AND month = ?`,
+      [userId, category_id, monthStr],
+    );
+
+    if (budget) {
+      // 3️⃣ Calculate the total spent so far
+      const [[spent]] = await conn.query(
+        `SELECT SUM(amount) AS total FROM transactions WHERE user_id = ? AND category_id = ? AND DATE_FORMAT(trn_date, '%Y-%m') = ?`,
+        [userId, category_id, monthStr],
+      );
+
+      // 4️⃣ Send notification if exceeded
+      if (spent && spent.total > budget.amount) {
+        const [[category]] = await conn.query(
+          `SELECT name FROM categories WHERE category_id = ?`,
+          [category_id],
+        );
+        const catName = category ? category.name : "this category";
+        const msgSuffix = isUpdate ? " after a recent update" : "";
+
+        await createNotification(
+          userId,
+          "Budget Exceeded 🚨",
+          `Warning: You have exceeded your ${monthStr} budget for ${catName}${msgSuffix}!`,
+          "warning",
+        );
+      }
+    }
+  } catch (notifErr) {
+    console.error("🚨 Notification Error:", notifErr);
+  }
+};
+
+/**
  * ======================================================
  * 📥 ADD TRANSACTION SERVICE
  * ======================================================
@@ -366,6 +423,10 @@ const addTransaction = async (
     }
 
     await conn.commit();
+
+    // 🔔 Budget Exceeded Notification Logic
+    await checkAndNotifyBudgetExceeded(userId, trnId, conn, false);
+
     return { trnId };
   } catch (err) {
     await conn.rollback();
@@ -597,6 +658,10 @@ const updateTransaction = async (
     }
 
     await conn.commit();
+
+    // 🔔 Budget Exceeded Notification Logic (Post-Update)
+    await checkAndNotifyBudgetExceeded(userId, trnId, conn, true);
+
     return true;
   } catch (err) {
     await conn.rollback();

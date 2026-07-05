@@ -3,6 +3,7 @@
 // =======================================
 const bcrypt = require("bcrypt");
 const db = require("../config/db");
+const { createNotification } = require("./notification.service");
 
 /**
  * ======================================================
@@ -52,6 +53,14 @@ const registerUser = async ({ name, email, password, mobileNo }) => {
     VALUES (?, ?, ?, ?)
     `,
     [name, email, hashedPassword, mobileNo],
+  );
+
+  // 🌟 Send Welcome Notification
+  await createNotification(
+    result.insertId,
+    "Welcome to FinFlow! 🎉",
+    "We are excited to help you manage your finances. Try adding your first transaction today!",
+    "success"
   );
 
   // 4️⃣ Return user data

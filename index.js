@@ -126,3 +126,4 @@ app.listen(port, () => {
 // 🔁 Start background cron jobs
 // =======================================
 require("./src/cron/recurringExpenseCron");
+require("./src/cron/tokenCleanupCron"); // 🧹 Starts the token blacklist cleanup job

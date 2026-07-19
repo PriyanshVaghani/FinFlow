@@ -7,7 +7,9 @@ const db = require("../config/db");
  * ======================================================
  * 📂 GET CATEGORIES SERVICE
  * ======================================================
- * Fetch all categories by type (user + default)
+ * Fetch all categories by type (user + default).
+ * Also returns isActive and isDefault so the frontend can
+ * tell system categories apart from user-created ones.
  */
 const getCategories = async (type, userId) => {
   // 1️⃣ Fetch categories
@@ -19,16 +21,17 @@ const getCategories = async (type, userId) => {
    * Tables Used:
    * - categories → Category definitions and metadata
    *
-   * JSON_EXTRACT:
-   * - Extracts boolean string from CASE expression
-   * - Returns 'true' or 'false' based on is_active flag
+   * JSON_EXTRACT + CASE (isActive):
+   * - Converts is_active (0/1) to boolean true/false
    *
-   * CASE Expression:
-   * - Converts is_active (0/1) to readable boolean strings
+   * JSON_EXTRACT + CASE (isDefault):
+   * - true when user_id IS NULL (system/default category)
+   * - false when the category belongs to the logged-in user
    *
    * WHERE Clause:
    * - Filters by category type (Income/Expense)
    * - Includes user-specific and system categories (user_id IS NULL)
+   * - Only returns active categories
    */
   const [rows] = await db.query(
     `
@@ -41,7 +44,14 @@ const getCategories = async (type, userId) => {
           ELSE 'false'
         END,
         '$'
-      ) AS isActive
+      ) AS isActive,
+      JSON_EXTRACT(
+        CASE
+          WHEN user_id IS NULL THEN 'true'
+          ELSE 'false'
+        END,
+        '$'
+      ) AS isDefault
     FROM categories
     WHERE type = ?
       AND (user_id = ? OR user_id IS NULL)

@@ -33,12 +33,13 @@ const {
  * 📂 GET CATEGORIES
  * ======================================================
  * @route   GET /api/categories
- * @desc    Retrieve all categories by type (user + default)
+ * @desc    Retrieve all categories by type (user + default), including isDefault flag
  * @access  Private (JWT protected)
  *
  * Flow:
  * - Validate query param (type) via middleware.
  * - Fetch categories via service, which includes user-specific and default system categories.
+ * - Each item includes isActive and isDefault for frontend display/actions.
  * - Send success response with category data.
  */
 /**
@@ -79,9 +80,12 @@ const {
  *                         type: integer
  *                       name:
  *                         type: string
- *                       type:
- *                         type: string
- *                         enum: [Income, Expense]
+ *                       isActive:
+ *                         type: boolean
+ *                         description: Whether the category is active
+ *                       isDefault:
+ *                         type: boolean
+ *                         description: true for system/default categories (user_id is null)
  */
 router.get(
   "/",

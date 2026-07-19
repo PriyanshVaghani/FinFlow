@@ -18,11 +18,10 @@ const rateLimit = require("express-rate-limit");
 // =======================================
 // 🌐 CORS Configuration (IMPORTANT)
 // =======================================
-// Allows frontend (React/Vite) to communicate with backend
-
+// Frontend URL comes from .env (CORS_ORIGIN)
 app.use(
   cors({
-    origin: "http://localhost:5173", // ✅ Frontend URL (Vite default)
+    origin: process.env.CORS_ORIGIN || "http://localhost:5173",
     credentials: true,
   }),
 );

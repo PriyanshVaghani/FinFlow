@@ -39,7 +39,11 @@ app.use(express.urlencoded({ extended: true }));
 const globalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 100, // Limit each IP to 100 requests per window
-  message: { isError: true, message: "Too many requests from this IP, please try again after 15 minutes" },
+  message: {
+    isError: true,
+    message:
+      "Too many requests from this IP, please try again after 15 minutes",
+  },
   standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
   legacyHeaders: false, // Disable the `X-RateLimit-*` headers
 });
@@ -48,7 +52,11 @@ const globalLimiter = rateLimit({
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 20, // Limit each IP to 20 auth requests per window
-  message: { isError: true, message: "Too many authentication attempts from this IP, please try again later" },
+  message: {
+    isError: true,
+    message:
+      "Too many authentication attempts from this IP, please try again later",
+  },
   standardHeaders: true,
   legacyHeaders: false,
 });
@@ -66,6 +74,7 @@ const categoriesRoutes = require("./src/routes/categories.routes");
 const transactionsRoutes = require("./src/routes/transactions.routes");
 const budgetsRoutes = require("./src/routes/budgets.routes");
 const reportRoutes = require("./src/routes/report.routes");
+const notificationRoutes = require("./src/routes/notification.routes");
 
 // Import global error handler
 const errorHandler = require("./src/middleware/errorHandler");
@@ -83,6 +92,7 @@ app.use("/api/categories", categoriesRoutes);
 app.use("/api/transactions", transactionsRoutes);
 app.use("/api/budgets", budgetsRoutes);
 app.use("/api/report", reportRoutes);
+app.use("/api/notifications", notificationRoutes);
 
 // =======================================
 // 📂 Serve uploaded files as static assets
@@ -120,7 +130,6 @@ const port = process.env.PORT || 3000;
 app.listen(port, () => {
   console.log(`🚀 FinFlow Server is running on port ${port}`);
 });
-
 
 // =======================================
 // 🔁 Start background cron jobs

@@ -33,13 +33,14 @@ const {
  * 📂 GET CATEGORIES
  * ======================================================
  * @route   GET /api/categories
- * @desc    Retrieve all categories by type (user + default), including isDefault flag
+ * @desc    Retrieve categories (user + default). Optional type filter;
+ *          omit type to get both Income and Expense.
  * @access  Private (JWT protected)
  *
  * Flow:
- * - Validate query param (type) via middleware.
- * - Fetch categories via service, which includes user-specific and default system categories.
- * - Each item includes isActive and isDefault for frontend display/actions.
+ * - Validate optional query param (type) via middleware.
+ * - Fetch categories via service (filtered or all types).
+ * - Each item includes type, isActive, and isDefault.
  * - Send success response with category data.
  */
 /**
@@ -47,19 +48,19 @@ const {
  * /api/categories:
  *   get:
  *     summary: Get categories
- *     description: Retrieve all categories (user + default) filtered by type
+ *     description: Retrieve categories (user + default). Pass type to filter, or omit to get both Income and Expense.
  *     tags: [Categories]
  *     security:
  *       - bearerAuth: []
  *     parameters:
  *       - in: query
  *         name: type
- *         required: true
+ *         required: false
  *         schema:
  *           type: string
  *           enum: [Income, Expense]
  *           example: Expense
- *         description: Filter categories by Income or Expense
+ *         description: Optional. Filter by Income or Expense. Omit to return both.
  *     responses:
  *       200:
  *         description: Categories fetched successfully
@@ -80,6 +81,9 @@ const {
  *                         type: integer
  *                       name:
  *                         type: string
+ *                       type:
+ *                         type: string
+ *                         enum: [Income, Expense]
  *                       isActive:
  *                         type: boolean
  *                         description: Whether the category is active

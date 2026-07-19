@@ -6,16 +6,17 @@
  * ======================================================
  * 📂 Validate Get Categories Request
  * ======================================================
- * Ensures category type query parameter exists
+ * type is optional:
+ * - omitted → return both Income and Expense
+ * - provided → must be Income or Expense
  */
 const validateGetCategories = (req, res, next) => {
   const { type } = req.query;
 
-  // 🔎 Validate type presence
-  if (!type) {
+  if (type && !["Income", "Expense"].includes(type)) {
     return next({
       statusCode: 422,
-      message: "Category type is required to fetch categories",
+      message: "Category type must be Income or Expense",
     });
   }
 

@@ -7,9 +7,10 @@ const db = require("../config/db");
  * ======================================================
  * 📂 GET CATEGORIES SERVICE
  * ======================================================
- * Fetch all categories by type (user + default).
- * Also returns isActive and isDefault so the frontend can
- * tell system categories apart from user-created ones.
+ * Fetch categories (user + default).
+ * - If type is provided → filter by Income or Expense
+ * - If type is omitted → return both types
+ * Also returns isActive, isDefault, and type for the frontend.
  */
 const getCategories = async (type, userId) => {
   // 1️⃣ Fetch categories
@@ -29,15 +30,24 @@ const getCategories = async (type, userId) => {
    * - false when the category belongs to the logged-in user
    *
    * WHERE Clause:
-   * - Filters by category type (Income/Expense)
+   * - Optional type filter (Income/Expense); omitted = both
    * - Includes user-specific and system categories (user_id IS NULL)
    * - Only returns active categories
    */
+  const params = [userId];
+  let typeFilter = "";
+
+  if (type) {
+    typeFilter = "AND type = ?";
+    params.push(type);
+  }
+
   const [rows] = await db.query(
     `
     SELECT
       category_id,
       name,
+      type,
       JSON_EXTRACT(
         CASE
           WHEN is_active = 1 THEN 'true'
@@ -53,11 +63,12 @@ const getCategories = async (type, userId) => {
         '$'
       ) AS isDefault
     FROM categories
-    WHERE type = ?
-      AND (user_id = ? OR user_id IS NULL)
+    WHERE (user_id = ? OR user_id IS NULL)
       AND is_active = true
+      ${typeFilter}
+    ORDER BY type, name
     `,
-    [type, userId],
+    params,
   );
 
   return rows;

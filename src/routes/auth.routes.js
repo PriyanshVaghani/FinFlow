@@ -64,7 +64,7 @@ const { authenticationToken } = require("../middleware/auth_middleware"); // ðŸ”
  *                 example: test@gmail.com
  *               password:
  *                 type: string
- *                 example: 123456
+ *                 example: Password@123
  *               mobileNo:
  *                 type: string
  *                 example: "9876543210"

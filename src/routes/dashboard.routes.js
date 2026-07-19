@@ -479,7 +479,7 @@ router.get(
      * - offset is fixed to 0 (always latest entries)
      * - baseUrl is passed so service can generate absolute file URLs
      */
-    const transactions = await fetchTransactions(userId, {
+    const result = await fetchTransactions(userId, {
       limit: take,
       offset: 0,
       baseUrl,
@@ -487,7 +487,8 @@ router.get(
 
     // ✅ Send standardized success response
     return sendSuccess(res, {
-      data: transactions,
+      data: result.transactions,
+      totalCount: result.total,
     });
   }),
 );

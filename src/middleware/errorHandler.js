@@ -13,18 +13,27 @@
 //
 
 const { sendError } = require("../utils/responseHelper");
+const { redactSensitive } = require("../utils/sanitizeLog");
 
 const errorHandler = (err, req, res, next) => {
-  // Log full error for debugging
-  console.error("❌ API Error:", err);
-
-  // Use custom statusCode if available
   const statusCode = err.statusCode || 500;
-
-  // Use custom message if available
   const message = err.message || "Internal Server Error";
+  const isAuthRoute = req.originalUrl?.startsWith("/api/auth");
 
-  // Send standardized error response
+  // Never log raw auth bodies (password) or sensitive fields
+  console.error("❌ API Error:", {
+    statusCode,
+    message,
+    method: req.method,
+    path: req.originalUrl,
+    ...(process.env.NODE_ENV !== "production" && err.stack
+      ? { stack: err.stack }
+      : {}),
+    ...(!isAuthRoute && req.body
+      ? { body: redactSensitive(req.body) }
+      : {}),
+  });
+
   return sendError(res, {
     statusCode,
     message,

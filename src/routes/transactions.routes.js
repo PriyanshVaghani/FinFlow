@@ -810,7 +810,7 @@ router.delete(
  *                         type: string
  *                       frequency:
  *                         type: string
- *                         enum: [Daily, Weekly, Monthly, Yearly]
+ *                         enum: [DAILY, WEEKLY, MONTHLY, YEARLY]
  *                       start_date:
  *                         type: string
  *                         format: date
@@ -888,8 +888,8 @@ router.get(
  *                 example: "Netflix Subscription"
  *               frequency:
  *                 type: string
- *                 enum: [Daily, Weekly, Monthly, Yearly]
- *                 example: Monthly
+ *                 enum: [DAILY, WEEKLY, MONTHLY, YEARLY]
+ *                 example: MONTHLY
  *               startDate:
  *                 type: string
  *                 description: "Start date (YYYY-MM-DD)"
@@ -980,7 +980,7 @@ router.post(
  *                 type: string
  *               frequency:
  *                 type: string
- *                 enum: [Daily, Weekly, Monthly, Yearly]
+ *                 enum: [DAILY, WEEKLY, MONTHLY, YEARLY]
  *               startDate:
  *                 type: string
  *                 description: "Start date (YYYY-MM-DD)"

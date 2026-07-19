@@ -3,6 +3,20 @@
 // =======================================
 const { isValidISODate } = require("../utils/validation"); // 📅 ISO date validator
 
+const ALLOWED_FREQUENCIES = ["DAILY", "WEEKLY", "MONTHLY", "YEARLY"];
+
+/**
+ * Normalize frequency to uppercase and validate against allowed values.
+ * Returns normalized string, or null if invalid.
+ */
+const normalizeFrequency = (frequency) => {
+  if (frequency === undefined || frequency === null || frequency === "") {
+    return null;
+  }
+  const normalized = String(frequency).trim().toUpperCase();
+  return ALLOWED_FREQUENCIES.includes(normalized) ? normalized : null;
+};
+
 /**
  * ======================================================
  * 📥 Validate Add Transaction Request
@@ -134,6 +148,16 @@ const validateAddRecurringTransaction = (req, res, next) => {
     });
   }
 
+  const normalizedFrequency = normalizeFrequency(frequency);
+  if (!normalizedFrequency) {
+    return next({
+      statusCode: 400,
+      message:
+        "Invalid frequency. Allowed: DAILY, WEEKLY, MONTHLY, YEARLY",
+    });
+  }
+  req.body.frequency = normalizedFrequency;
+
   if (!startDate) {
     return next({
       statusCode: 422,
@@ -164,6 +188,18 @@ const validateUpdateRecurringTransaction = (req, res, next) => {
       statusCode: 422,
       message: "Recurring transaction ID is required",
     });
+  }
+
+  if (req.body.frequency !== undefined) {
+    const normalizedFrequency = normalizeFrequency(req.body.frequency);
+    if (!normalizedFrequency) {
+      return next({
+        statusCode: 400,
+        message:
+          "Invalid frequency. Allowed: DAILY, WEEKLY, MONTHLY, YEARLY",
+      });
+    }
+    req.body.frequency = normalizedFrequency;
   }
 
   next();

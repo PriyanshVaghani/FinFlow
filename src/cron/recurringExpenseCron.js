@@ -107,8 +107,10 @@ function shouldRunToday(frequency, lastRun) {
 
   const last = new Date(lastRun);
   const today = new Date(); // only for interval comparison
+  // Normalize casing so DB values like "Monthly" still match cron cases
+  const freq = String(frequency).trim().toUpperCase();
 
-  switch (frequency) {
+  switch (freq) {
     case "DAILY":
       return true;
 

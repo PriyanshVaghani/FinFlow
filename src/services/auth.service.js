@@ -55,13 +55,17 @@ const registerUser = async ({ name, email, password, mobileNo }) => {
     [name, email, hashedPassword, mobileNo],
   );
 
-  // 🌟 Send Welcome Notification
-  await createNotification(
-    result.insertId,
-    "Welcome to FinFlow! 🎉",
-    "We are excited to help you manage your finances. Try adding your first transaction today!",
-    "success"
-  );
+  try {
+    // 🌟 Send Welcome Notification
+    await createNotification(
+      result.insertId,
+      "Welcome to FinFlow! 🎉",
+      "We are excited to help you manage your finances. Try adding your first transaction today!",
+      "success",
+    );
+  } catch (notifErr) {
+    console.error("🚨 Welcome notification failed:", notifErr);
+  }
 
   // 4️⃣ Return user data
   return {

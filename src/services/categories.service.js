@@ -45,6 +45,7 @@ const getCategories = async (type, userId) => {
     FROM categories
     WHERE type = ?
       AND (user_id = ? OR user_id IS NULL)
+      AND is_active = true
     `,
     [type, userId],
   );

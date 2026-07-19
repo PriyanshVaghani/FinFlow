@@ -6,6 +6,7 @@ const router = express.Router(); // 📌 Router instance helps keep routes modul
 
 const { authenticationToken } = require("../middleware/auth_middleware"); // 🔐 JWT authentication middleware
 const asyncHandler = require("../utils/asyncHandler"); // 🔁 Handles async errors (removes try-catch)
+const { parseCategoryIds } = require("../utils/validation"); // 📂 Shared categoryIds query parser
 
 // 🧠 Service layer that handles business logic for generating report data
 const { exportTransactions } = require("../services/report.service");
@@ -26,25 +27,26 @@ const { exportTransactions } = require("../services/report.service");
  * Query Params (optional):
  * - startDate (YYYY-MM-DD)
  * - endDate (YYYY-MM-DD)
- * - categoryIds (comma-separated string)
+ * - categoryIds (single ID or repeated query params, e.g. categoryIds=1&categoryIds=2)
  * - type ('Income' or 'Expense')
  * - minAmount
  * - maxAmount
  * - search
  *
  * Controller Responsibility:
- * - Extract query parameters
+ * - Extract and normalize filter query parameters (including categoryIds → number[])
  * - Call service layer
  * - Send CSV file response
  *
  * Logical Flow:
  * 1️⃣ Authenticate user using JWT middleware
- * 2️⃣ Extract filters from query params
+ * 2️⃣ Extract filters from query params (normalize categoryIds to a numeric array)
  * 3️⃣ Service fetches transactions and converts them to CSV
  * 4️⃣ Controller sends CSV file as downloadable attachment
  * Flow:
  * - Authenticate user via JWT middleware.
  * - Extract optional filter parameters from the request query.
+ * - Normalize categoryIds the same way as the transactions list API.
  * - Generate a CSV string from filtered transactions via the report service.
  * - Set response headers to prompt a file download.
  * - Send the CSV data as the response body.
@@ -72,8 +74,10 @@ const { exportTransactions } = require("../services/report.service");
  *       - in: query
  *         name: categoryIds
  *         schema:
- *           type: string
- *         description: Comma-separated list of category IDs
+ *           type: array
+ *           items:
+ *             type: integer
+ *         description: Filter by one or more category IDs (repeat param for multiple)
  *       - in: query
  *         name: type
  *         schema:
@@ -86,7 +90,7 @@ const { exportTransactions } = require("../services/report.service");
  *           type: number
  *         description: Minimum transaction amount
  *       - in: query
- *         name: maxAmou/nt
+ *         name: maxAmount
  *         schema:
  *           type: number
  *         description: Maximum transaction amount
@@ -111,10 +115,13 @@ router.get(
     // Logical reason: ensures report contains only that user's data
     const userId = req.userId;
 
+    // 📂 Category filter via shared parser (same as transactions list)
+    const categoryIds = parseCategoryIds(req.query.categoryIds);
+
     const csv = await exportTransactions(userId, {
       startDate: req.query.startDate,
       endDate: req.query.endDate,
-      categoryIds: req.query.categoryIds,
+      categoryIds,
       type: req.query.type,
       minAmount: req.query.minAmount,
       maxAmount: req.query.maxAmount,

@@ -46,8 +46,39 @@ const isValidMonth = (month) => {
   return monthRegex.test(month);
 };
 
+/**
+ * ======================================================
+ * 📂 Parse categoryIds from query params
+ * ======================================================
+ * Normalizes Express query values into a numeric ID array.
+ *
+ * Supported:
+ * - missing / empty → []
+ * - single: ?categoryIds=1 → [1]
+ * - multiple: ?categoryIds=1&categoryIds=2 → [1, 2]
+ *
+ * Not supported:
+ * - comma-separated strings (e.g. "1,2,3") — those are dropped
+ *
+ * Non-numeric values are filtered out for safety.
+ *
+ * @param {string|string[]|undefined} rawCategoryIds - req.query.categoryIds
+ * @returns {number[]}
+ */
+const parseCategoryIds = (rawCategoryIds) => {
+  if (!rawCategoryIds) {
+    return [];
+  }
+
+  const values = Array.isArray(rawCategoryIds)
+    ? rawCategoryIds
+    : [rawCategoryIds];
+
+  return values.filter((id) => /^\d+$/.test(id)).map(Number);
+};
+
 // =======================================
 // 📤 Export Module
 // =======================================
 
-module.exports = { isValidISODate, isValidMonth }; // 🚀 Exposes ISO date validation utility for controller-level input validation
+module.exports = { isValidISODate, isValidMonth, parseCategoryIds };

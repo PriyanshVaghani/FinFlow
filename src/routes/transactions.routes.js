@@ -15,8 +15,8 @@ const {
   validateUpdateRecurringTransaction,
 } = require("../validators/transaction.validator");
 
-// 📅 Date validation utility
-const { isValidISODate } = require("../utils/validation");
+// 📅 Date / query validation utilities
+const { isValidISODate, parseCategoryIds } = require("../utils/validation");
 
 const asyncHandler = require("../utils/asyncHandler"); // 🔁 Handles async errors (removes try-catch)
 
@@ -252,18 +252,8 @@ router.get(
       });
     }
 
-    // 📂 Category filter (supports single or multiple IDs)
-    let categoryIds = req.query.categoryIds;
-
-    if (!categoryIds) {
-      categoryIds = [];
-    } else if (!Array.isArray(categoryIds)) {
-      categoryIds = [categoryIds];
-    }
-
-    // Keep only numeric IDs.
-    // This prevents SQL injection and invalid category filtering.
-    categoryIds = categoryIds.filter((id) => /^\d+$/.test(id)).map(Number);
+    // 📂 Category filter (single or repeated query params)
+    const categoryIds = parseCategoryIds(req.query.categoryIds);
 
     // 🔄 Transaction type filter
     let type = req.query.type;
